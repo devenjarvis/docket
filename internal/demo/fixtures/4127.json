@@ -1,0 +1,184 @@
+{
+  "summary": "Webhook deliveries that fail are now retried up to five times with exponential backoff, inside the worker that picked the event up. A new attempts column records how many tries each event used, and the last_status column is dropped.",
+  "claims": [
+    {"id": "c1", "text": "Failed deliveries retry up to 5 times with exponential backoff.", "status": "proved", "evidence": "Ran deliver() against a stub that returns 503 four times, then 200. Measured waits of 1.1 s, 2.3 s, 4.2 s and 8.9 s. The fifth attempt was delivered."},
+    {"id": "c2", "text": "Nothing changes for a delivery that succeeds first time.", "status": "proved", "evidence": "Replayed 200 recorded deliveries on base and head. The outgoing requests are byte-identical. The only database difference is attempts = 1 on head."},
+    {"id": "c3", "text": "Receivers will not see duplicate events.", "status": "contradicted", "evidence": "A stub endpoint that answers after 6 s, and does process the request, received the same event 5 times. No header distinguishes the attempts.", "decision": "d1"},
+    {"id": "c4", "text": "The migration is safe to run with no downtime.", "status": "unproven", "evidence": "The new column is NOT NULL with no default, and last_status is dropped in the same migration. Whether that is safe depends on whether old workers run during the migration, which is not visible from this repository.", "decision": "d2"},
+    {"id": "c5", "text": "A worker now holds its slot for up to 40 s per event while it retries.", "status": "unstated", "evidence": "The backoff sleeps inside deliver(), and pool.ts awaits deliver() before claiming the next event. The description does not mention worker capacity.", "decision": "d3"}
+  ],
+  "sections": [
+    {"id": "s1", "title": "The retry loop", "kind": "judgment", "why": "This is the behaviour change: one request became up to five.", "minutes": 8,
+     "files": [{"path": "src/delivery/deliver.ts"}, {"path": "src/delivery/backoff.ts"}]},
+    {"id": "s2", "title": "Attempt tracking and its migration", "kind": "judgment", "why": "A schema change that cannot be undone by reverting the code.", "minutes": 4,
+     "files": [{"path": "db/migrations/0142_attempts.sql"}, {"path": "src/delivery/store.ts"}]},
+    {"id": "s3", "title": "Dashboard shows attempts instead of the last HTTP status", "kind": "skim", "why": "Follows from dropping last_status.", "proof": "Type-checks. Rendered the component with three failed events on base and head; the only difference is the second column.", "minutes": 1,
+     "files": [{"path": "web/dashboard/FailedEvents.tsx"}]},
+    {"id": "s4", "title": "Tests", "kind": "skim", "why": "New tests for the retry loop.", "proof": "All 4 pass on head. Mutated deliver.ts 14 ways: 12 mutants are caught. The 2 that survive: the jitter range in backoff.ts, and treating 429 as not retryable.", "minutes": 2,
+     "files": [{"path": "src/delivery/deliver.test.ts"}]},
+    {"id": "s5", "title": "Rename send to deliver at its call sites", "kind": "mechanical", "why": "Only the function's name changes in these files.", "proof": "Parsed each file on base and head and compared syntax trees after replacing the identifier send with deliver: equal in all 3 files.", "minutes": 0,
+     "files": [{"path": "src/api/admin/replay.ts"}, {"path": "src/cli/redeliver.ts"}, {"path": "src/worker/pool.ts"}]}
+  ],
+  "decisions": [
+    {
+      "id": "d1", "section": "s1",
+      "title": "A delivery that times out is sent again, so a slow endpoint receives the same event up to five times.",
+      "detail": "On base, a timeout marked the event failed and stopped. On head, a timeout counts as retryable. The endpoint may have processed the first request; nothing in the later requests tells it they are the same event apart from X-Webhook-Id, which receivers are not told to dedupe on.",
+      "question": "Are duplicate deliveries acceptable here?",
+      "options": [
+        {"id": "block", "label": "Not acceptable", "detail": "Retries must carry an idempotency key before this merges.", "effect": "blocking",
+         "comment": "A timeout is retried, but the endpoint may already have processed the first attempt. Please send an `Idempotency-Key` derived from `event.id` on every attempt, and document that receivers should dedupe on it. With the current code an endpoint that answers in 6 s receives the same event 5 times."},
+        {"id": "accept", "label": "Acceptable", "detail": "At-least-once delivery is the contract. The description should say so.", "effect": "accept",
+         "comment": "Accepting at-least-once delivery. Please correct the description: it says receivers will not see duplicates, and on a timeout they will."},
+        {"id": "ask", "label": "I do not know", "detail": "Ask the author, and keep this open.", "effect": "ask",
+         "comment": "Is at-least-once delivery intended? On a timeout the same event can reach an endpoint up to 5 times, with no key to dedupe on. Probe attached."}
+      ],
+      "anchor": {"path": "src/delivery/deliver.ts", "line": 20},
+      "hot": [{"path": "src/delivery/deliver.ts", "ranges": [[14, 27]]}],
+      "evidence": [
+        {"kind": "probe", "title": "A 6 s endpoint that does process the event", "command": "npx vitest run scratch/dup-on-timeout.test.ts", "file": "dup-on-timeout.test.ts",
+         "code": "const seen: string[] = [];\nconst stub = stubEndpoint(async (req) => {\n  seen.push(req.headers[\"x-webhook-id\"]);\n  await sleep(6000);   // slower than the 5 s timeout\n  return 200;          // but it did process it\n});\nawait deliver(makeEvent(\"evt_81\"), stub.endpoint);\nexpect(seen).toHaveLength(1);",
+         "output": "FAIL  scratch/dup-on-timeout.test.ts\n  AssertionError: expected [ 'evt_81', 'evt_81', 'evt_81', 'evt_81', 'evt_81' ] to have a length of 1 but got 5\n  request 2 headers: x-webhook-id, x-webhook-signature (same as request 1)",
+         "passed": false},
+        {"kind": "search", "title": "What the public docs promise", "output": "docs/webhooks.md does not mention duplicates, retries or idempotency. It says: \"Each event is delivered to your endpoint once it occurs.\""}
+      ],
+      "beforeAfter": {
+        "kind": "timeline", "title": "One event, an endpoint that answers in 6 s", "scenario": "The endpoint processes every request it receives but takes 6 s to respond; our timeout is 5 s.", "measured": true,
+        "unit": "s", "max": 42,
+        "before": {"summary": "1 request. Event processed once. Recorded as failed.",
+          "lanes": [
+            {"label": "Worker slot", "spans": [{"from": 0, "to": 5, "label": "POST", "kind": "work"}]},
+            {"label": "Endpoint processes", "marks": [{"at": 6, "label": "evt_81"}]}
+          ]},
+        "after": {"summary": "5 requests. Event processed 5 times. Still recorded as failed.",
+          "lanes": [
+            {"label": "Worker slot", "spans": [
+              {"from": 0, "to": 5, "label": "POST", "kind": "work"}, {"from": 5, "to": 6, "kind": "wait"},
+              {"from": 6, "to": 11, "label": "POST", "kind": "work"}, {"from": 11, "to": 13, "kind": "wait"},
+              {"from": 13, "to": 18, "label": "POST", "kind": "work"}, {"from": 18, "to": 22, "kind": "wait"},
+              {"from": 22, "to": 27, "label": "POST", "kind": "work"}, {"from": 27, "to": 35, "kind": "wait"},
+              {"from": 35, "to": 40, "label": "POST", "kind": "work"}]},
+            {"label": "Endpoint processes", "marks": [{"at": 6, "label": "evt_81"}, {"at": 12, "label": "evt_81"}, {"at": 19, "label": "evt_81"}, {"at": 28, "label": "evt_81"}, {"at": 41, "label": "evt_81"}]}
+          ]}
+      },
+      "rule": "R07"
+    },
+    {
+      "id": "d2", "section": "s2",
+      "title": "The migration adds a NOT NULL column with no default and drops a column the old code still writes.",
+      "detail": "Until every worker runs the new code, an old worker's INSERT omits attempts and its UPDATE writes last_status. Both fail once the migration has run. Running the migration after the deploy fails the other way: new code writes attempts before it exists.",
+      "question": "How does this repository deploy: can old and new code run against the same database?",
+      "options": [
+        {"id": "block", "label": "They overlap", "detail": "Rolling deploys. The migration must be split.", "effect": "blocking",
+         "comment": "Workers roll, so old and new code run against the same schema for a while. Please split this: (1) add `attempts integer NOT NULL DEFAULT 0` now, (2) drop `last_status` in a later migration once no running code writes it."},
+        {"id": "accept", "label": "They never overlap", "detail": "Workers stop during migrations.", "effect": "accept", "comment": ""},
+        {"id": "ask", "label": "I do not know", "detail": "Ask the author to state the deploy order.", "effect": "ask",
+         "comment": "Do old workers keep running while 0142 migrates? If they do, the NOT NULL column needs a default and dropping `last_status` has to wait for a later migration."}
+      ],
+      "anchor": {"path": "db/migrations/0142_attempts.sql", "line": 3},
+      "hot": [{"path": "db/migrations/0142_attempts.sql", "ranges": [[2, 6]]}],
+      "evidence": [
+        {"kind": "probe", "title": "Base code against the migrated schema", "command": "psql -f db/migrations/0142_attempts.sql && (cd ../base && npx vitest run src/delivery)", "file": "old-code-new-schema.log",
+         "code": "-- applied 0142 to a scratch database, then ran the base checkout's delivery tests against it",
+         "output": "FAIL  src/delivery/deliver.test.ts > marks the event failed on 500\n  error: column \"last_status\" of relation \"webhook_events\" does not exist\nFAIL  src/testing > makeEvent\n  error: null value in column \"attempts\" of relation \"webhook_events\" violates not-null constraint",
+         "passed": false},
+        {"kind": "read", "title": "Deploy configuration", "output": "No deploy scripts, Procfile or workflow in this repository runs migrations. docs/runbook.md says \"migrations run from CI before the release job\" and does not say whether workers are stopped."}
+      ],
+      "beforeAfter": {
+        "kind": "table", "title": "During the window where old workers meet the new schema", "scenario": "Migration 0142 has run; a worker still on the base commit handles an event.", "measured": true,
+        "rows": [
+          {"label": "enqueue() INSERT", "before": "succeeds", "after": "fails: attempts is NOT NULL", "changed": true},
+          {"label": "markFailed() UPDATE", "before": "succeeds", "after": "fails: last_status does not exist", "changed": true},
+          {"label": "markDelivered() UPDATE", "before": "succeeds", "after": "succeeds", "changed": false},
+          {"label": "Events lost", "before": "none", "after": "every event enqueued in the window", "changed": true}
+        ]
+      },
+      "rule": "R12"
+    },
+    {
+      "id": "d3", "section": "s1",
+      "title": "A worker holds its slot for up to 40 s while it retries one event.",
+      "detail": "pool.ts runs 8 workers and each awaits deliver() before claiming the next event. With retries inside deliver(), one dead endpoint occupies a slot for 40 s instead of 5 s. Eight dead endpoints stall all delivery for 40 s.",
+      "question": "Is that capacity cost acceptable for now?",
+      "options": [
+        {"id": "block", "label": "No", "detail": "Retries should be scheduled as separate jobs.", "effect": "blocking",
+         "comment": "Sleeping inside `deliver()` holds one of 8 worker slots for up to 40 s per failing event. Please schedule each retry as a delayed job (set `next_attempt_at` and release the slot) so one bad endpoint cannot starve the pool."},
+        {"id": "accept", "label": "Yes, with a follow-up", "detail": "Fine at current volume. Note it and move on.", "effect": "accept",
+         "comment": "Not blocking: retries sleep inside the worker, which holds a slot for up to 40 s per failing event. Worth a follow-up to move retries to delayed jobs before volume grows."},
+        {"id": "ask", "label": "I do not know", "detail": "Ask what volume and failure rate to expect.", "effect": "ask",
+         "comment": "What failure rate do we expect? With retries inside `deliver()`, each failing event holds one of 8 worker slots for up to 40 s."}
+      ],
+      "anchor": {"path": "src/delivery/deliver.ts", "line": 26},
+      "hot": [{"path": "src/delivery/deliver.ts", "ranges": [[25, 27]]}, {"path": "src/worker/pool.ts", "ranges": [[19, 20]]}],
+      "evidence": [
+        {"kind": "probe", "title": "Eight dead endpoints, then one healthy event", "command": "npx vitest run scratch/pool-starvation.test.ts", "file": "pool-starvation.test.ts",
+         "code": "startPool();\nfor (let i = 0; i < 8; i++) await enqueue(`dead_${i}`, deadEndpoint.id, {});\nawait enqueue(\"healthy\", okEndpoint.id, {});\nconst waited = await timeUntilDelivered(\"healthy\");\nexpect(waited).toBeLessThan(6_000);",
+         "output": "FAIL  scratch/pool-starvation.test.ts\n  AssertionError: expected 40212 to be less than 6000\n  (on the base checkout the same test passes: waited 5034 ms)",
+         "passed": false}
+      ],
+      "beforeAfter": {
+        "kind": "table", "title": "One failing event, and what it costs the pool", "scenario": "An endpoint that never answers. Pool of 8 workers.", "measured": true,
+        "rows": [
+          {"label": "Slot held by one failing event", "before": "5 s", "after": "40 s", "changed": true},
+          {"label": "Healthy event behind 8 failing ones waits", "before": "5.0 s", "after": "40.2 s", "changed": true},
+          {"label": "Requests to the dead endpoint", "before": "1", "after": "5", "changed": true}
+        ]
+      },
+      "proposedRule": {"text": "Sleeping inside a worker loop needs a note on what it costs the pool.", "applies": "job workers"}
+    }
+  ],
+  "context": {
+    "title": "How webhook delivery works in payments-api",
+    "lede": "You last reviewed src/delivery five months ago and have not read src/worker. This covers what the change leans on and skips what you know from ledger's outbox.",
+    "path": [
+      {"label": "Payment settles", "note": "ledger emits an event", "changed": false},
+      {"label": "Outbox row", "note": "webhook_events, status pending", "changed": false},
+      {"label": "Worker claims it", "note": "pool of 8, one event each, 60 s lease", "changed": false},
+      {"label": "deliver()", "note": "was send(): one POST, 5 s timeout", "changed": true},
+      {"label": "Customer endpoint", "note": "not ours", "changed": false}
+    ],
+    "facts": [
+      {"text": "A worker handles one event at a time and awaits deliver() before claiming the next, so anything slow inside deliver() takes one of only 8 slots.", "source": "src/worker/pool.ts:14-20"},
+      {"text": "A claimed row has a 60 s lease. If a worker is still busy when it ends, another worker can claim the same row.", "source": "src/delivery/store.ts (claimNext), docs/runbook.md"},
+      {"text": "The only identifier sent to the endpoint is X-Webhook-Id. The public docs do not tell receivers to dedupe on it.", "source": "src/delivery/deliver.ts:39-44, docs/webhooks.md"}
+    ],
+    "beforeAfter": {
+      "kind": "timeline", "title": "One event against an endpoint that never answers", "scenario": "Every request times out at 5 s.", "measured": true,
+      "unit": "s", "max": 42,
+      "before": {"summary": "1 request, slot held 5 s, marked failed.",
+        "lanes": [{"label": "Worker slot", "spans": [{"from": 0, "to": 5, "label": "POST", "kind": "work"}], "marks": [{"at": 5, "label": "failed"}]}]},
+      "after": {"summary": "5 requests, slot held 40 s, marked failed.",
+        "lanes": [{"label": "Worker slot", "spans": [
+          {"from": 0, "to": 5, "label": "POST", "kind": "work"}, {"from": 5, "to": 6, "kind": "wait"},
+          {"from": 6, "to": 11, "label": "POST", "kind": "work"}, {"from": 11, "to": 13, "kind": "wait"},
+          {"from": 13, "to": 18, "label": "POST", "kind": "work"}, {"from": 18, "to": 22, "kind": "wait"},
+          {"from": 22, "to": 27, "label": "POST", "kind": "work"}, {"from": 27, "to": 35, "kind": "wait"},
+          {"from": 35, "to": 40, "label": "POST", "kind": "work"}], "marks": [{"at": 40, "label": "failed"}]}]}
+    },
+    "analogy": {"text": "This does the same job as the outbox retry you reviewed in acme/ledger. The difference: ledger sets next_attempt_at and frees the worker between tries; this sleeps inside the worker.", "source": "acme/ledger src/outbox/retry.ts"},
+    "sources": [
+      {"ref": "src/delivery/deliver.ts", "note": "base and head"},
+      {"ref": "src/worker/pool.ts"},
+      {"ref": "src/delivery/store.ts"},
+      {"ref": "docs/webhooks.md", "note": "says nothing on duplicates"},
+      {"ref": "docs/runbook.md"},
+      {"ref": "acme/ledger src/outbox/retry.ts"}
+    ]
+  },
+  "ruleHits": [
+    {"rule": "R07", "result": "violated", "note": "Retries of a POST carry no idempotency key. Probe fails.", "decision": "d1"},
+    {"rule": "R12", "result": "violated", "note": "attempts is NOT NULL with no default, and no deploy order is stated.", "decision": "d2"},
+    {"rule": "R03", "result": "passed", "note": "The two new exported functions in backoff.ts: backoff has a doc comment; sleep does not, but is one line."},
+    {"rule": "repo", "result": "passed", "note": "CONTRIBUTING.md asks for a test per behaviour change: present."}
+  ],
+  "uncovered": ["behaviour when the 60 s lease expires mid-retry (another worker may deliver the same event concurrently)", "load on customer endpoints that are down for hours"],
+  "work": [
+    {"did": "Installed dependencies in both checkouts", "result": "ok, 41 s"},
+    {"did": "Ran the delivery tests on head", "result": "4 of 4 pass"},
+    {"did": "Replayed 200 recorded deliveries on base and head", "result": "requests identical"},
+    {"did": "Wrote and ran 3 probes", "result": "1 pass, 2 fail"},
+    {"did": "Applied migration 0142 to a scratch database and ran base against it", "result": "2 failures"},
+    {"did": "Mutated deliver.ts and backoff.ts 14 ways", "result": "12 caught, 2 survive"},
+    {"did": "Compared syntax trees for the 3 renamed call sites", "result": "equal"}
+  ]
+}

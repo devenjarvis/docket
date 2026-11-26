@@ -1,0 +1,32 @@
+diff --git a/src/components/datepicker/dates.test.ts b/src/components/datepicker/dates.test.ts
+new file mode 100644
+index 0000000..72e37be
+--- /dev/null
++++ b/src/components/datepicker/dates.test.ts
+@@ -0,0 +1,8 @@
++import { toISODate, parseISODate } from "./dates";
++
++test("keeps the picked day in a UTC-negative zone", () => {
++  process.env.TZ = "America/Los_Angeles";
++  const picked = new Date(2026, 10, 3, 22, 30);
++  expect(toISODate(picked)).toBe("2026-11-03");
++  expect(parseISODate("2026-11-03").getDate()).toBe(3);
++});
+diff --git a/src/components/datepicker/dates.ts b/src/components/datepicker/dates.ts
+index 4ceb860..5c70176 100644
+--- a/src/components/datepicker/dates.ts
++++ b/src/components/datepicker/dates.ts
+@@ -1,7 +1,11 @@
+ export function toISODate(d: Date): string {
+-  return d.toISOString().slice(0, 10);
++  const y = d.getFullYear();
++  const m = String(d.getMonth() + 1).padStart(2, "0");
++  const day = String(d.getDate()).padStart(2, "0");
++  return `${y}-${m}-${day}`;
+ }
+ 
+ export function parseISODate(s: string): Date {
+-  return new Date(s);
++  const [y, m, d] = s.split("-").map(Number);
++  return new Date(y, m - 1, d);
+ }

@@ -1,0 +1,182 @@
+package review_test
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/devenjarvis/docket/internal/demo"
+	"github.com/devenjarvis/docket/internal/gh"
+	"github.com/devenjarvis/docket/internal/model"
+	"github.com/devenjarvis/docket/internal/review"
+	"github.com/devenjarvis/docket/internal/rules"
+)
+
+// The test binary doubles as the scripted ACP agent, so the whole loop runs
+// over a real pipe: start a process, speak the protocol, write the brief
+// through the client's file methods.
+func TestMain(m *testing.M) {
+	if os.Getenv("DOCKET_TEST_AGENT") == "1" {
+		_ = demo.ServeAgent(os.Stdin, os.Stdout)
+		return
+	}
+	os.Exit(m.Run())
+}
+
+func start(t *testing.T) (*review.Engine, string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("DOCKET_HOME", home)
+	t.Setenv("DOCKET_DEMO_STEP_MS", "1")
+	rs, err := rules.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	demo.Seed(home, rs)
+	eng := review.New(home, demo.GitHub{Home: home}, demo.Checkout{Home: home}, rs)
+	self, _ := os.Executable()
+	eng.Agent = func() (string, string) { return fmt.Sprintf("DOCKET_TEST_AGENT=1 %q", self), "test agent" }
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	eng.Start(ctx, 2, time.Hour)
+	return eng, home
+}
+
+func waitReady(t *testing.T, eng *review.Engine, key string) *review.View {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if v, ok := eng.Get(key); ok {
+			switch v.Status {
+			case "ready":
+				return v
+			case "failed":
+				t.Fatalf("%s failed: %s", key, v.Error)
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("%s was never ready", key)
+	return nil
+}
+
+func TestAssignedPullRequestsAreReadWithoutBeingAsked(t *testing.T) {
+	eng, _ := start(t)
+	const key = "acme/payments-api#4127"
+	v := waitReady(t, eng, key)
+
+	if got := len(v.Brief.Decisions); got != 3 {
+		t.Fatalf("decisions = %d, want 3", got)
+	}
+	// Docket counts the lines itself rather than trusting the agent.
+	if v.Brief.Sections[0].Lines == 0 {
+		t.Error("section line counts were not filled in from the diff")
+	}
+	if len(v.Hot["d1"]) == 0 || len(v.Sections["s1"]) != 2 {
+		t.Errorf("diffs were not cut to the brief: hot=%d s1=%d", len(v.Hot["d1"]), len(v.Sections["s1"]))
+	}
+	hot := 0
+	for _, h := range v.Hot["d1"][0].Hunks {
+		for _, l := range h.Lines {
+			if l.Hot {
+				hot++
+			}
+		}
+	}
+	if hot != 13 {
+		t.Errorf("hot lines for d1 = %d, want the 13 added lines of the retry loop", hot)
+	}
+	if st := eng.List(); len(st.Reviews) != 3 || st.Reviews[0].Key != key {
+		t.Errorf("queue should lead with the PR that has the most at stake, got %+v", st.Reviews)
+	}
+}
+
+func TestApproveStaysLockedUntilEveryDecisionIsSettled(t *testing.T) {
+	eng, home := start(t)
+	const key = "acme/payments-api#4127"
+	waitReady(t, eng, key)
+	ctx := context.Background()
+
+	if _, err := eng.Post(ctx, key, review.PostInput{Event: "APPROVE"}); err == nil {
+		t.Fatal("approved with three unanswered decisions")
+	}
+	for d, opt := range map[string]string{"d1": "block", "d2": "accept", "d3": "accept"} {
+		if err := eng.SetAnswer(key, d, model.Answer{Option: opt}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	draft, err := eng.Compose(key, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft.Event != "REQUEST_CHANGES" || len(draft.Locks) != 1 {
+		t.Fatalf("event=%s locks=%v, want REQUEST_CHANGES with one lock", draft.Event, draft.Locks)
+	}
+	if _, err := eng.Post(ctx, key, review.PostInput{Event: "APPROVE"}); err == nil {
+		t.Fatal("approved with a blocking decision")
+	}
+	if !strings.Contains(draft.Body, "How this was reviewed") {
+		t.Error("the attention receipt is missing from the review body")
+	}
+
+	if _, err := eng.Post(ctx, key, review.PostInput{Event: draft.Event, Body: draft.Body, Comments: draft.Comments}); err != nil {
+		t.Fatal(err)
+	}
+	var posted gh.ReviewInput
+	b, err := os.ReadFile(filepath.Join(home, "posted", "payments-api-4127.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &posted); err != nil {
+		t.Fatal(err)
+	}
+	if posted.Event != "REQUEST_CHANGES" || len(posted.Comments) != 2 {
+		t.Fatalf("posted %s with %d inline comments, want REQUEST_CHANGES with 2", posted.Event, len(posted.Comments))
+	}
+	if c := posted.Comments[0]; c.Path != "src/delivery/deliver.ts" || c.Line != 20 || !strings.Contains(c.Body, "Failing probe") {
+		t.Errorf("blocking comment should sit on the anchor and carry its probe: %+v", c)
+	}
+}
+
+func TestAnsweringTeachesTheRulebook(t *testing.T) {
+	eng, _ := start(t)
+	const key = "acme/payments-api#4127"
+	waitReady(t, eng, key)
+	before, _ := eng.Rules.Get("R07")
+
+	if err := eng.SetAnswer(key, "d1", model.Answer{Option: "block"}); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := eng.Rules.Get("R07")
+	if after.Stats.Agreed != before.Stats.Agreed+1 {
+		t.Errorf("acting on a rule's finding should count as agreeing: %d → %d", before.Stats.Agreed, after.Stats.Agreed)
+	}
+	// Changing the verdict moves the count rather than adding to it.
+	if err := eng.SetAnswer(key, "d1", model.Answer{Option: "accept", Feedback: "not-here"}); err != nil {
+		t.Fatal(err)
+	}
+	moved, _ := eng.Rules.Get("R07")
+	if moved.Stats.Fired != after.Stats.Fired || moved.Stats.Overrode != before.Stats.Overrode+1 || moved.Stats.Agreed != before.Stats.Agreed {
+		t.Errorf("stats after changing the verdict: %+v", moved.Stats)
+	}
+	if len(moved.Except) != 1 || moved.Except[0] != "acme/payments-api" {
+		t.Errorf("\"not in this repo\" should exempt the repository: %v", moved.Except)
+	}
+	if rs, _ := eng.Rules.ForRepo("acme/payments-api"); containsRule(rs, "R07") {
+		t.Error("an exempted rule was still handed to the agent for that repository")
+	}
+}
+
+func containsRule(rs []model.Rule, id string) bool {
+	for _, r := range rs {
+		if r.ID == id {
+			return true
+		}
+	}
+	return false
+}

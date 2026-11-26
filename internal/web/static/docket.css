@@ -1,0 +1,332 @@
+/* Docket design system: "Whiteprint".
+ *
+ * Review is redlining. The interface is a set of drawing sheets, and three
+ * kinds of mark share it, each with a line style of its own so they are told
+ * apart without relying on hue:
+ *
+ *   ink     solid          what is in the pull request: facts, code, claims
+ *   pencil  dashed, grey   what the agent did or found: provisional
+ *   red     solid, heavy   what the reviewer decides: the only binding mark
+ *
+ * Light mode is a whiteprint (blue-violet line on drafting film). Dark mode
+ * is the blueprint it replaced (pale line on Prussian blue). Corners are
+ * square. Diffs use blue fill and strike-through, never red and green, so
+ * red always and only means "yours". docs/design-system.md has the rest.
+ */
+
+/* Routed Gothic draws 1 as a bare stroke, which reads as I in a label, so
+   digits are left out of its range and fall through to the body face. */
+@font-face { font-family: "Routed Gothic"; src: url("fonts/routedgothic.woff2") format("woff2"); font-display: swap; unicode-range: U+0020-002F, U+003A-10FFFF; }
+@font-face { font-family: "Routed Gothic Wide"; src: url("fonts/routedgothic-wide.woff2") format("woff2"); font-display: swap; unicode-range: U+0020-002F, U+003A-10FFFF; }
+@font-face { font-family: "B612"; font-weight: 400; src: url("fonts/b612-400.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "B612"; font-weight: 400; font-style: italic; src: url("fonts/b612-400i.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "B612"; font-weight: 700; src: url("fonts/b612-700.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Commit Mono"; font-weight: 400; src: url("fonts/commitmono-400.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Commit Mono"; font-weight: 700; src: url("fonts/commitmono-700.woff2") format("woff2"); font-display: swap; }
+
+:root {
+  /* surfaces */
+  --film: #E9ECE6;      /* the table the sheets lie on */
+  --sheet: #F6F7F3;     /* a sheet */
+  --sunk: #E1E5DD;      /* wells: code, inputs */
+  /* ink */
+  --ink: #1B2163;       /* linework, headings */
+  --text: #181B33;
+  --text-2: #40455F;
+  --text-3: #5D6279;
+  --hair: #B4BACB;      /* hairlines */
+  --grid: rgba(27, 33, 99, 0.055);
+  /* pencil: the agent */
+  --pencil: #565B6B;
+  --pencil-wash: #ECEEE9;
+  /* red: the reviewer */
+  --red: #BF2A1A;
+  --red-wash: #F5DCD6;
+  --on-red: #FFFFFF;
+  /* diff */
+  --add: #D7E1F6;
+  --add-ink: #121C52;
+  --del: #E2E0D9;
+  --del-ink: #5A5E70;
+  --on-ink: #F6F7F3;
+
+  --lettering: "Routed Gothic", "B612", system-ui, sans-serif;
+  --lettering-wide: "Routed Gothic Wide", "Routed Gothic", system-ui, sans-serif;
+  --body: "B612", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Commit Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --u: 8px;             /* the grid everything sits on */
+  --line: 1.5px;        /* object line */
+  --heavy: 3px;         /* border line, and the reviewer's line */
+  color-scheme: light;
+}
+
+[data-theme="blueprint"] {
+  --film: #0A1C36;
+  --sheet: #0F2747;
+  --sunk: #0A1B33;
+  --ink: #D9E6FA;
+  --text: #E7EEF9;
+  --text-2: #B7C7E1;
+  --text-3: #93A8C9;
+  --hair: #2D4A77;
+  --grid: rgba(217, 230, 250, 0.05);
+  --pencil: #A3B8D8;
+  --pencil-wash: #132F55;
+  --red: #FF8B76;
+  --red-wash: #43202A;
+  --on-red: #1A0B08;
+  --add: #1B4078;
+  --add-ink: #EAF1FC;
+  --del: #0A1930;
+  --del-ink: #8296B8;
+  --on-ink: #0F2747;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--film); }
+body {
+  margin: 0; color: var(--text); font: 14px/1.5 var(--body);
+  background: var(--film) linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 100% 16px,
+              linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 16px 100%;
+  background-color: var(--film);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 16px 16px;
+  min-height: 100vh;
+}
+a { color: var(--ink); text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+button, input, textarea, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+::selection { background: var(--add); color: var(--add-ink); }
+h1, h2, h3, p { margin: 0; }
+code, .mono { font-family: var(--mono); font-size: 0.93em; }
+.hidden { display: none !important; }
+
+/* --- lettering ----------------------------------------------------------- */
+.label {
+  font: 12px/1.2 var(--lettering-wide); letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-3);
+}
+.label.ink { color: var(--ink); }
+.title { font: 30px/1.15 var(--lettering); color: var(--ink); letter-spacing: 0.01em; }
+.h2 { font: 20px/1.2 var(--lettering); color: var(--ink); letter-spacing: 0.02em; }
+.statement { font: 700 21px/1.3 var(--body); color: var(--text); max-width: 46em; }
+.lede { font-size: 15px; color: var(--text-2); max-width: 46em; }
+.muted { color: var(--text-3); }
+.small { font-size: 13px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* --- the sheet ------------------------------------------------------------ */
+.page { max-width: 1240px; margin: 0 auto; padding: calc(var(--u) * 3) calc(var(--u) * 3) calc(var(--u) * 10); }
+.sheet { background: var(--sheet); border: var(--heavy) solid var(--ink); }
+.sheet > .body { padding: calc(var(--u) * 4); display: flex; flex-direction: column; gap: calc(var(--u) * 4); }
+.block { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); }
+.row { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); align-items: flex-start; }
+.grow { flex: 1 1 0; min-width: 0; }
+.rule-top { border-top: var(--line) solid var(--ink); padding-top: calc(var(--u) * 2); }
+.cols { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 4); align-items: flex-start; }
+.cols > .main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: calc(var(--u) * 4); }
+.cols > .side.wide { flex-basis: 380px; }
+.cols > .side { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: calc(var(--u) * 3); }
+
+/* --- title block: the strip every sheet carries ---------------------------- */
+.titleblock { display: flex; flex-wrap: wrap; border-bottom: var(--line) solid var(--ink); }
+.titleblock > * { border-right: var(--line) solid var(--ink); padding: var(--u) calc(var(--u) * 1.5); min-height: 52px; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+.titleblock > *:last-child { border-right: 0; }
+.titleblock .cell-v { font: 14px/1.25 var(--mono); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 36ch; }
+.titleblock .brand { font: 22px/1 var(--lettering-wide); letter-spacing: 0.14em; color: var(--ink); text-decoration: none; text-transform: uppercase; justify-content: center; }
+.titleblock .brand:hover { background: var(--ink); color: var(--on-ink); }
+.titleblock .wide { flex: 1 1 220px; min-width: 0; }
+.titleblock .wide .cell-v { max-width: none; font-family: var(--body); font-weight: 700; }
+
+/* sheet index: the tabs, numbered like sheets of a drawing set */
+.sheets { display: flex; flex-wrap: wrap; border-bottom: var(--line) solid var(--ink); background: var(--sunk); }
+.sheets a {
+  display: flex; align-items: center; gap: var(--u); min-height: 44px; padding: 0 calc(var(--u) * 2);
+  font: 14px/1 var(--lettering-wide); letter-spacing: 0.08em; text-transform: uppercase; text-decoration: none; color: var(--text-2);
+  border-right: 1px solid var(--hair);
+}
+.sheets a:hover { color: var(--ink); background: var(--sheet); }
+.sheets a[aria-current="page"] { background: var(--sheet); color: var(--ink); box-shadow: inset 0 var(--heavy) 0 var(--ink); }
+.sheets .spacer { flex: 1; }
+
+/* --- marks ---------------------------------------------------------------- */
+/* The revision triangle: a numbered delta, the drafting mark for "changed
+   here, see revision n". In Docket it numbers the reviewer's decisions. */
+.tri { position: relative; display: inline-grid; place-items: center; width: 26px; height: 24px; flex: 0 0 auto; }
+.tri::before { content: ""; position: absolute; inset: 0; background: var(--red); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.tri::after { content: ""; position: absolute; inset: 0; background: var(--sheet); clip-path: polygon(50% 19%, 86% 91%, 14% 91%); }
+.tri > span { position: relative; z-index: 1; font: 700 11px/1 var(--mono); color: var(--red); padding-top: 7px; }
+.tri.done::after { display: none; }
+.tri.done > span { color: var(--on-red); }
+.tri.big { width: 44px; height: 40px; }
+.tri.big > span { font-size: 17px; padding-top: 12px; }
+
+/* stamps: status in a box. Border style carries the meaning. */
+.stamp {
+  display: inline-block; font: 12px/1 var(--lettering-wide); letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap;
+  padding: 5px 7px 4px; border: var(--line) solid var(--ink); color: var(--ink);
+}
+.stamp.contra { background: var(--red); border-color: var(--red); color: var(--on-red); }
+.stamp.open { border-style: dashed; }
+.stamp.faint { border: 1px dashed var(--pencil); color: var(--pencil); }
+.stamp.red { border-color: var(--red); color: var(--red); border-width: 2px; }
+.stamp.solid { background: var(--ink); color: var(--on-ink); }
+
+/* pencil: anything the agent says or did */
+.pencil { border: 1px dashed var(--pencil); background: var(--pencil-wash); padding: calc(var(--u) * 2); }
+.pencil > .label:first-child { color: var(--pencil); margin-bottom: var(--u); }
+
+/* red: the reviewer's panel */
+.yours { border: var(--heavy) solid var(--red); padding: calc(var(--u) * 3); display: flex; flex-direction: column; gap: calc(var(--u) * 2); background: var(--sheet); }
+.yours > .label:first-child { color: var(--red); }
+
+/* --- controls ------------------------------------------------------------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--u); min-height: 44px; padding: 0 calc(var(--u) * 2.5);
+  font: 15px/1 var(--lettering-wide); letter-spacing: 0.08em; text-transform: uppercase; text-decoration: none; cursor: pointer;
+  background: transparent; border: var(--line) solid var(--ink); color: var(--ink); border-radius: 0;
+}
+.btn:hover:not(:disabled) { background: var(--ink); color: var(--on-ink); }
+.btn.primary { background: var(--ink); color: var(--on-ink); }
+.btn.primary:hover:not(:disabled) { background: var(--sheet); color: var(--ink); }
+.btn.red { border-color: var(--red); color: var(--red); border-width: 2px; }
+.btn.red:hover:not(:disabled), .btn.red[aria-pressed="true"] { background: var(--red); color: var(--on-red); }
+.btn.quiet { border-color: var(--hair); color: var(--text-2); }
+.btn.small { min-height: 32px; padding: 0 var(--u) ; font-size: 12px; }
+.btn:disabled { cursor: not-allowed; border-style: dashed; color: var(--text-3); border-color: var(--hair); }
+.field {
+  width: 100%; min-height: 44px; padding: 10px 12px; background: var(--sunk); color: var(--text);
+  border: 0; border-bottom: var(--line) solid var(--ink); border-radius: 0; font-family: var(--body);
+}
+textarea.field { resize: vertical; line-height: 1.5; }
+.field.mono { font-family: var(--mono); font-size: 13px; }
+.field::placeholder { color: var(--text-3); }
+label.check { display: flex; gap: var(--u); align-items: center; min-height: 44px; cursor: pointer; }
+label.check input { width: 18px; height: 18px; accent-color: var(--ink); }
+
+/* an option the reviewer can choose: a key, a label, a consequence */
+.option {
+  display: grid; grid-template-columns: 28px 1fr; gap: calc(var(--u) * 1.5); align-items: start; width: 100%; text-align: left;
+  min-height: 56px; padding: calc(var(--u) * 1.5); background: transparent; border: var(--line) solid var(--hair); cursor: pointer; border-radius: 0;
+}
+.option .stamp { margin-top: 6px; }
+.option:hover { border-color: var(--red); }
+.option .key { font: 700 13px/1 var(--mono); width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--text-3); color: var(--text-2); }
+.option b { display: block; }
+.option small { display: block; color: var(--text-2); font-size: 13px; }
+.option[aria-pressed="true"] { border: var(--heavy) solid var(--red); background: var(--red-wash); }
+.option[aria-pressed="true"] .key { background: var(--red); border-color: var(--red); color: var(--on-red); }
+
+/* --- tables --------------------------------------------------------------- */
+table.reg { width: 100%; border-collapse: collapse; }
+table.reg th { text-align: left; font: 12px/1.2 var(--lettering-wide); letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-3); font-weight: 400; padding: var(--u) calc(var(--u) * 1.5); border-bottom: var(--line) solid var(--ink); white-space: nowrap; }
+table.reg td { padding: calc(var(--u) * 1.5); border-bottom: 1px solid var(--hair); vertical-align: top; }
+table.reg tr:last-child td { border-bottom: 0; }
+table.reg tr.go { cursor: pointer; }
+table.reg tr.go:hover td { background: var(--sunk); }
+table.reg td.r, table.reg th.r { text-align: right; }
+table.reg.queue { table-layout: fixed; min-width: 760px; }
+table.reg.queue th:nth-child(2) { width: 130px; }
+table.reg.queue th:nth-child(3) { width: 180px; }
+table.reg.queue th:nth-child(4) { width: 100px; }
+table.reg.queue th:nth-child(5) { width: 190px; }
+.scroll-x { overflow-x: auto; }
+
+/* --- code and diffs ------------------------------------------------------- */
+pre.code { margin: 0; padding: calc(var(--u) * 1.5); background: var(--sunk); font: 13px/1.6 var(--mono); overflow-x: auto; white-space: pre; border-left: var(--line) solid var(--ink); }
+pre.code.out { border-left: 1px dashed var(--pencil); color: var(--text-2); }
+.diff { border: var(--line) solid var(--ink); background: var(--sheet); }
+.diff .file { display: flex; flex-wrap: wrap; gap: var(--u); justify-content: space-between; align-items: baseline; padding: var(--u) calc(var(--u) * 1.5); border-bottom: 1px solid var(--hair); font: 13px/1.3 var(--mono); }
+.diff .lines { overflow-x: auto; font: 13px/1.65 var(--mono); padding: 4px 0; }
+.diff .ln { display: grid; grid-template-columns: 24px 44px 44px 18px 1fr; min-width: max-content; white-space: pre; }
+.diff .ln > .no { color: var(--text-3); text-align: right; padding-right: 8px; user-select: none; font-size: 12px; }
+.diff .ln > .sg { color: var(--text-3); user-select: none; text-align: center; }
+.diff .ln.add { background: var(--add); color: var(--add-ink); }
+.diff .ln.add > .sg { color: var(--add-ink); font-weight: 700; }
+.diff .ln.del { background: var(--del); color: var(--del-ink); }
+.diff .ln.del > .tx { text-decoration: line-through; text-decoration-thickness: 1px; }
+.diff .ln > .mk { border-left: var(--heavy) solid transparent; }
+.diff .ln.hot > .mk { border-left-color: var(--red); }
+.diff .gap { padding: 2px calc(var(--u) * 1.5); color: var(--text-3); font: 12px/1.6 var(--mono); border-top: 1px dashed var(--hair); border-bottom: 1px dashed var(--hair); }
+
+/* --- attention bar: where the changed lines go ----------------------------- */
+.attn { display: flex; height: 28px; border: var(--line) solid var(--ink); }
+.attn > div { min-width: 6px; border-right: 1px solid var(--sheet); }
+.attn > div:last-child { border-right: 0; }
+.fill-judgment { background: var(--red); }
+.fill-skim { background: repeating-linear-gradient(135deg, var(--ink) 0 2px, transparent 2px 7px); }
+.fill-mechanical { background: repeating-linear-gradient(90deg, var(--hair) 0 1px, transparent 1px 5px); }
+.key-sw { display: inline-block; width: 22px; height: 12px; border: 1px solid var(--ink); vertical-align: -1px; margin-right: 6px; }
+
+/* --- the path a change sits on --------------------------------------------- */
+.path { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0; }
+.path .step { flex: 1 1 130px; min-width: 0; padding: var(--u) calc(var(--u) * 1.5); border: var(--line) solid var(--ink); margin-right: 26px; position: relative; margin-bottom: var(--u); }
+.path .step:not(:last-child)::after { content: ""; position: absolute; right: -27px; top: 50%; width: 26px; border-top: var(--line) solid var(--ink); }
+.path .step:not(:last-child)::before { content: ""; position: absolute; right: -27px; top: calc(50% - 5px); border: 5px solid transparent; border-left: 8px solid var(--ink); border-right: 0; z-index: 1; }
+.path .step:last-child { margin-right: 0; }
+.path .step.changed { border: var(--heavy) solid var(--ink); background: var(--add); color: var(--add-ink); }
+.path .step small { display: block; color: var(--text-2); font-size: 12px; }
+.path .step.changed small { color: var(--add-ink); }
+
+/* --- before / after -------------------------------------------------------- */
+.ba { border: var(--line) solid var(--ink); background: var(--sheet); }
+.ba > header { display: flex; flex-wrap: wrap; gap: var(--u) calc(var(--u) * 2); justify-content: space-between; align-items: baseline; padding: var(--u) calc(var(--u) * 1.5); border-bottom: var(--line) solid var(--ink); }
+.ba > .scenario { padding: var(--u) calc(var(--u) * 1.5); color: var(--text-2); font-size: 13px; border-bottom: 1px solid var(--hair); }
+.ba svg { display: block; width: 100%; height: auto; }
+.ba svg text { font-family: var(--mono); font-size: 12px; fill: var(--text-2); }
+.ba svg .lbl { font-family: var(--body); font-size: 12px; fill: var(--text-2); }
+.ba svg .side { font-family: var(--lettering-wide); font-size: 14px; letter-spacing: 0.1em; }
+.ba svg .sum { font-family: var(--body); font-size: 13px; font-weight: 700; fill: var(--text); }
+.ba table { width: 100%; border-collapse: collapse; }
+.ba th { text-align: left; font: 12px/1.2 var(--lettering-wide); letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-3); font-weight: 400; padding: var(--u) calc(var(--u) * 1.5); border-bottom: 1px solid var(--hair); }
+.ba td { padding: calc(var(--u) * 1.25) calc(var(--u) * 1.5); border-bottom: 1px solid var(--hair); vertical-align: top; }
+.ba tr:last-child td { border-bottom: 0; }
+.ba td.was { color: var(--pencil); font-family: var(--mono); font-size: 13px; }
+.ba td.now { font-family: var(--mono); font-size: 13px; }
+.ba tr.changed td.now { font-weight: 700; color: var(--ink); background: var(--add); color: var(--add-ink); }
+.ba tr:not(.changed) td { color: var(--text-3); }
+.ba td.delta { width: 28px; font: 700 14px/1.4 var(--mono); color: var(--ink); }
+.ba .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.ba .pair > div { min-width: 0; }
+.ba .pair > div + div { border-left: 1px solid var(--hair); }
+.ba .pair .label { padding: var(--u) calc(var(--u) * 1.5) 0; }
+.ba .pair pre { margin: 0; padding: var(--u) calc(var(--u) * 1.5) calc(var(--u) * 1.5); font: 13px/1.6 var(--mono); overflow-x: auto; }
+.ba .pair pre .same { color: var(--text-3); }
+.ba .pair .was pre .diffline { color: var(--pencil); text-decoration: line-through; }
+.ba .pair .now pre .diffline { background: var(--add); color: var(--add-ink); display: inline-block; min-width: 100%; }
+.ba .pair img { display: block; max-width: 100%; }
+
+/* --- queue ------------------------------------------------------------------ */
+.tally { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); border: var(--line) solid var(--ink); background: var(--sheet); }
+.tally > div { padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border-right: 1px solid var(--hair); }
+.tally > div:last-child { border-right: 0; }
+.tally .big { font: 700 32px/1.15 var(--body); color: var(--ink); }
+.tally .big.red { color: var(--red); }
+.meter { display: flex; height: 8px; width: 96px; border: 1px solid var(--ink); }
+.meter > i { display: block; background: var(--red); }
+.live { display: inline-block; width: 8px; height: 8px; background: var(--ink); margin-right: 8px; animation: blink 1.1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0.15; } }
+@media (prefers-reduced-motion: reduce) { .live { animation: none; } }
+
+.banner { padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border: 1px dashed var(--pencil); background: var(--pencil-wash); color: var(--text-2); }
+.banner.red { border: 2px solid var(--red); background: var(--red-wash); color: var(--text); }
+.kbd { font: 700 12px/1 var(--mono); border: 1px solid var(--text-3); padding: 2px 5px; color: var(--text-2); }
+details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: var(--u); list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before { content: "+"; font: 700 14px/1 var(--mono); width: 20px; height: 20px; display: inline-grid; place-items: center; border: 1px solid var(--ink); color: var(--ink); flex: 0 0 auto; }
+details[open] > summary::before { content: "\2212"; }
+.bar { height: 6px; background: var(--sunk); border: 1px solid var(--hair); }
+.bar > i { display: block; height: 100%; background: var(--ink); }
+.bar.red > i { background: var(--red); }
+.thread { border-left: 1px dashed var(--pencil); padding-left: calc(var(--u) * 1.5); white-space: pre-wrap; color: var(--text-2); }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--ink); color: var(--on-ink); padding: 12px 18px; z-index: 10; max-width: min(90vw, 640px); }
+@media (max-width: 720px) {
+  .page { padding: var(--u); }
+  .sheet > .body { padding: calc(var(--u) * 2); }
+  .title { font-size: 24px; }
+  .path .step { flex-basis: 100%; margin-right: 0; margin-bottom: 26px; }
+  .path .step:not(:last-child)::after { right: 50%; top: 100%; width: 0; height: 26px; border-top: 0; border-left: var(--line) solid var(--ink); }
+  .path .step:not(:last-child)::before { display: none; }
+}

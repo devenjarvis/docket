@@ -1,0 +1,24 @@
+diff --git a/src/settlement/round.test.ts b/src/settlement/round.test.ts
+index 0bb7cc9..455c803 100644
+--- a/src/settlement/round.test.ts
++++ b/src/settlement/round.test.ts
+@@ -3,3 +3,8 @@ import { toMinor } from "./round";
+ test("converts whole amounts", () => {
+   expect(toMinor(12, "USD")).toBe(1200);
+ });
++
++test("rounds a fraction of a cent instead of dropping it", () => {
++  expect(toMinor(10.019, "USD")).toBe(1002);
++  expect(toMinor(1.5, "JPY")).toBe(2);
++});
+diff --git a/src/settlement/round.ts b/src/settlement/round.ts
+index e4d8cbd..da59408 100644
+--- a/src/settlement/round.ts
++++ b/src/settlement/round.ts
+@@ -3,5 +3,5 @@ import { minorUnits } from "./currency";
+ /** Converts a settlement amount to the currency's minor unit. */
+ export function toMinor(amount: number, currency: string): number {
+   const scale = 10 ** minorUnits(currency);
+-  return Math.trunc(amount * scale);
++  return Math.round(amount * scale);
+ }

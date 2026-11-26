@@ -1,0 +1,56 @@
+{
+  "summary": "Settlement amounts are now rounded to the currency's minor unit instead of truncated. The rounding is Math.round, which rounds halves up.",
+  "claims": [
+    {"id": "c1", "text": "Fractions of a minor unit are no longer dropped.", "status": "proved", "evidence": "toMinor(10.019, \"USD\") returns 1001 on base and 1002 on head. The new test passes on head and fails on base."},
+    {"id": "c2", "text": "Rounding uses banker's rounding, as the settlement spec requires.", "status": "contradicted", "evidence": "Math.round rounds halves up. toMinor(0.125, \"USD\") returns 13; banker's rounding gives 12. docs/settlement.md section 3 says \"round half to even\".", "decision": "d1"}
+  ],
+  "sections": [
+    {"id": "s1", "title": "The rounding change", "kind": "judgment", "why": "One line that changes every settlement amount with a fractional minor unit.", "minutes": 4,
+     "files": [{"path": "src/settlement/round.ts"}]},
+    {"id": "s2", "title": "Tests", "kind": "skim", "why": "One new test.", "proof": "Passes on head, fails on base. It does not cover an exact half.", "minutes": 1,
+     "files": [{"path": "src/settlement/round.test.ts"}]}
+  ],
+  "decisions": [
+    {
+      "id": "d1", "section": "s1",
+      "title": "Halves round up, not to even.",
+      "detail": "The description and docs/settlement.md both say banker's rounding. Math.round rounds 0.5 up, so amounts ending in exactly half a minor unit come out one unit high about half the time.",
+      "question": "Should this hold to banker's rounding before it merges?",
+      "options": [
+        {"id": "block", "label": "Yes, block", "detail": "The spec says round half to even.", "effect": "blocking",
+         "comment": "`Math.round` rounds halves up; docs/settlement.md section 3 requires round half to even. `toMinor(0.125, \"USD\")` returns 13 and should return 12. Please use a half-even rounding and add a test for an exact half."},
+        {"id": "accept", "label": "Half up is fine", "detail": "Then the spec and description should change.", "effect": "accept",
+         "comment": "Accepting half-up rounding. Please update docs/settlement.md and the description, which both say banker's rounding."},
+        {"id": "ask", "label": "I do not know", "detail": "Ask which is intended.", "effect": "ask",
+         "comment": "Is half-up rounding intended? The description says banker's rounding, but `Math.round` rounds halves up: `toMinor(0.125, \"USD\")` is 13, not 12."}
+      ],
+      "anchor": {"path": "src/settlement/round.ts", "line": 6},
+      "hot": [{"path": "src/settlement/round.ts", "ranges": [[6, 6]]}],
+      "evidence": [
+        {"kind": "probe", "title": "Exact halves", "command": "npx vitest run scratch/half-even.test.ts", "file": "half-even.test.ts",
+         "code": "expect(toMinor(0.125, \"USD\")).toBe(12);\nexpect(toMinor(0.135, \"USD\")).toBe(14);\nexpect(toMinor(2.5, \"JPY\")).toBe(2);",
+         "output": "FAIL  scratch/half-even.test.ts\n  expected 13 to be 12\n  expected 3 to be 2\n  (0.135 passes: 14)",
+         "passed": false}
+      ],
+      "beforeAfter": {
+        "kind": "table", "title": "toMinor() on base, on head, and under the spec", "scenario": "Amounts chosen to land on and around half a minor unit. The third column is head.", "measured": true,
+        "rows": [
+          {"label": "toMinor(10.019, USD)", "before": "1001", "after": "1002", "changed": true},
+          {"label": "toMinor(0.125, USD)", "before": "12", "after": "13 (spec: 12)", "changed": true},
+          {"label": "toMinor(2.5, JPY)", "before": "2", "after": "3 (spec: 2)", "changed": true},
+          {"label": "toMinor(12, USD)", "before": "1200", "after": "1200", "changed": false}
+        ]
+      },
+      "rule": "R09"
+    }
+  ],
+  "ruleHits": [
+    {"rule": "R09", "result": "violated", "note": "Money is rounded half up.", "decision": "d1"}
+  ],
+  "uncovered": ["floating-point error in amount * scale before rounding (for example 1.005 * 100)"],
+  "work": [
+    {"did": "Ran the settlement tests on base and head", "result": "base: 1 pass. head: 2 pass"},
+    {"did": "Wrote and ran 1 probe for exact halves", "result": "fails"},
+    {"did": "Read docs/settlement.md", "result": "section 3 requires round half to even"}
+  ]
+}

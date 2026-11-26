@@ -1,0 +1,20 @@
+{
+  "summary": "The date picker built its ISO date from the UTC date, so an evening pick west of UTC came out as the next day. It now formats and parses in local time.",
+  "claims": [
+    {"id": "c1", "text": "Fixes the off-by-one day for users in UTC-negative time zones.", "status": "proved", "evidence": "With TZ=America/Los_Angeles, picking 3 Nov 2026 at 22:30 gives \"2026-11-04\" on base and \"2026-11-03\" on head. The new test fails on base and passes on head."},
+    {"id": "c2", "text": "No change for users at or east of UTC.", "status": "proved", "evidence": "Ran the same pick under UTC, Europe/Berlin and Asia/Tokyo for every hour of the day on base and head: 72 of 72 results identical."}
+  ],
+  "sections": [
+    {"id": "s1", "title": "Format and parse dates in local time", "kind": "skim", "why": "A contained bug fix whose behaviour was checked across time zones.", "proof": "Bug reproduced on base, gone on head. 72 hour-by-zone combinations compared for zones east of UTC: identical.", "minutes": 2,
+     "files": [{"path": "src/components/datepicker/dates.ts"}]},
+    {"id": "s2", "title": "Test", "kind": "skim", "why": "One new test for the fixed case.", "proof": "Fails on base, passes on head.", "minutes": 1,
+     "files": [{"path": "src/components/datepicker/dates.test.ts"}]}
+  ],
+  "decisions": [],
+  "ruleHits": [],
+  "uncovered": ["daylight-saving transitions, where a local day is 23 or 25 hours long"],
+  "work": [
+    {"did": "Ran the date picker tests on base and head", "result": "base: new test fails. head: all pass"},
+    {"did": "Compared output for 4 time zones across 24 hours", "result": "differs only where base was wrong"}
+  ]
+}

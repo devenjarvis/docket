@@ -1,0 +1,234 @@
+diff --git a/db/migrations/0142_attempts.sql b/db/migrations/0142_attempts.sql
+new file mode 100644
+index 0000000..8de0fe7
+--- /dev/null
++++ b/db/migrations/0142_attempts.sql
+@@ -0,0 +1,9 @@
++-- 0142: track how many delivery attempts each webhook event has used.
++ALTER TABLE webhook_events
++  ADD COLUMN attempts integer NOT NULL;
++
++ALTER TABLE webhook_events
++  DROP COLUMN last_status;
++
++CREATE INDEX webhook_events_attempts_idx ON webhook_events (attempts)
++  WHERE status = 'failed';
+diff --git a/src/api/admin/replay.ts b/src/api/admin/replay.ts
+index ff97b21..c4b99f4 100644
+--- a/src/api/admin/replay.ts
++++ b/src/api/admin/replay.ts
+@@ -1,10 +1,10 @@
+-import { send } from "../delivery/deliver";
++import { deliver } from "../delivery/deliver";
+ import { loadEvent, loadEndpoint } from "../delivery/store";
+ 
+ export async function replay(eventId: string) {
+   const event = await loadEvent(eventId);
+   const endpoint = await loadEndpoint(event.endpointId);
+   // Operators trigger this by hand, so it runs outside the worker pool.
+-  await send(event, endpoint);
++  await deliver(event, endpoint);
+   return { ok: true };
+ }
+diff --git a/src/cli/redeliver.ts b/src/cli/redeliver.ts
+index e01f312..65637e9 100644
+--- a/src/cli/redeliver.ts
++++ b/src/cli/redeliver.ts
+@@ -1,10 +1,10 @@
+-import { send } from "../delivery/deliver";
++import { deliver } from "../delivery/deliver";
+ import { loadEvent, loadEndpoint } from "../delivery/store";
+ 
+ export async function redeliver(eventId: string) {
+   const event = await loadEvent(eventId);
+   const endpoint = await loadEndpoint(event.endpointId);
+   // Operators trigger this by hand, so it runs outside the worker pool.
+-  await send(event, endpoint);
++  await deliver(event, endpoint);
+   return { ok: true };
+ }
+diff --git a/src/delivery/backoff.ts b/src/delivery/backoff.ts
+new file mode 100644
+index 0000000..f827de1
+--- /dev/null
++++ b/src/delivery/backoff.ts
+@@ -0,0 +1,10 @@
++/** Delay before retry number `attempt` (1-based): 1 s, 2 s, 4 s, 8 s, with jitter. */
++export function backoff(attempt: number): number {
++  const base = 1000 * 2 ** (attempt - 1);
++  const jitter = Math.random() * 0.2 * base;
++  return base + jitter;
++}
++
++export function sleep(ms: number): Promise<void> {
++  return new Promise((resolve) => setTimeout(resolve, ms));
++}
+diff --git a/src/delivery/deliver.test.ts b/src/delivery/deliver.test.ts
+index aae5f38..55d3ca0 100644
+--- a/src/delivery/deliver.test.ts
++++ b/src/delivery/deliver.test.ts
+@@ -1,14 +1,32 @@
+-import { send } from "./deliver";
+-import { stubEndpoint, makeEvent, rowFor } from "../testing";
++import { deliver, MAX_ATTEMPTS } from "./deliver";
++import { stubEndpoint, makeEvent, rowFor, useFakeTimers } from "../testing";
++
++useFakeTimers();
+ 
+ test("marks the event delivered on 200", async () => {
+   const stub = stubEndpoint(() => 200);
+-  await send(makeEvent("evt_1"), stub.endpoint);
++  await deliver(makeEvent("evt_1"), stub.endpoint);
+   expect((await rowFor("evt_1")).status).toBe("delivered");
++  expect((await rowFor("evt_1")).attempts).toBe(1);
++});
++
++test("retries a 503 until it succeeds", async () => {
++  let calls = 0;
++  const stub = stubEndpoint(() => (++calls < 5 ? 503 : 200));
++  await deliver(makeEvent("evt_2"), stub.endpoint);
++  expect(calls).toBe(5);
++  expect((await rowFor("evt_2")).status).toBe("delivered");
+ });
+ 
+-test("marks the event failed on 500", async () => {
++test("gives up after MAX_ATTEMPTS", async () => {
+   const stub = stubEndpoint(() => 500);
+-  await send(makeEvent("evt_2"), stub.endpoint);
+-  expect((await rowFor("evt_2")).status).toBe("failed");
++  await deliver(makeEvent("evt_3"), stub.endpoint);
++  expect(stub.requests).toHaveLength(MAX_ATTEMPTS);
++  expect((await rowFor("evt_3")).status).toBe("failed");
++});
++
++test("does not retry a 400", async () => {
++  const stub = stubEndpoint(() => 400);
++  await deliver(makeEvent("evt_4"), stub.endpoint);
++  expect(stub.requests).toHaveLength(1);
+ });
+diff --git a/src/delivery/deliver.ts b/src/delivery/deliver.ts
+index a6d2d68..6affe01 100644
+--- a/src/delivery/deliver.ts
++++ b/src/delivery/deliver.ts
+@@ -1,21 +1,39 @@
+ import { http } from "../lib/http";
++import { backoff, sleep } from "./backoff";
+ import { markFailed, markDelivered } from "./store";
+ import type { Endpoint, WebhookEvent } from "./types";
+ 
++export const MAX_ATTEMPTS = 5;
++
+ /**
+- * Sends one webhook event to one customer endpoint.
++ * Delivers one webhook event to one customer endpoint, retrying
++ * failures with exponential backoff.
+  * Called by the worker pool, one event per worker slot.
+  */
+-export async function send(event: WebhookEvent, endpoint: Endpoint) {
+-  const res = await http.post(endpoint.url, event.payload, {
+-    timeout: 5000,
+-    headers: signatureHeaders(event, endpoint),
+-  });
+-  if (!res.ok) {
+-    await markFailed(event.id, res.status);
+-    return;
++export async function deliver(event: WebhookEvent, endpoint: Endpoint) {
++  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
++    const res = await http
++      .post(endpoint.url, event.payload, {
++        timeout: 5000,
++        headers: signatureHeaders(event, endpoint),
++      })
++      .catch(toTimeoutResult);
++    if (res.ok) {
++      await markDelivered(event.id, attempt);
++      return;
++    }
++    if (!isRetryable(res)) break;
++    if (attempt < MAX_ATTEMPTS) await sleep(backoff(attempt));
+   }
+-  await markDelivered(event.id);
++  await markFailed(event.id, MAX_ATTEMPTS);
++}
++
++function isRetryable(res: { status: number }) {
++  return res.status === 0 || res.status === 429 || res.status >= 500;
++}
++
++function toTimeoutResult() {
++  return { ok: false, status: 0 };
+ }
+ 
+ function signatureHeaders(event: WebhookEvent, endpoint: Endpoint) {
+diff --git a/src/delivery/store.ts b/src/delivery/store.ts
+index 95ba085..86b771b 100644
+--- a/src/delivery/store.ts
++++ b/src/delivery/store.ts
+@@ -1,22 +1,22 @@
+ import { db } from "../lib/db";
+ 
+-export async function markDelivered(id: string) {
++export async function markDelivered(id: string, attempts: number) {
+   await db.query(
+-    "UPDATE webhook_events SET status = 'delivered', delivered_at = now() WHERE id = $1",
+-    [id],
++    "UPDATE webhook_events SET status = 'delivered', delivered_at = now(), attempts = $2 WHERE id = $1",
++    [id, attempts],
+   );
+ }
+ 
+-export async function markFailed(id: string, status: number) {
++export async function markFailed(id: string, attempts: number) {
+   await db.query(
+-    "UPDATE webhook_events SET status = 'failed', last_status = $2 WHERE id = $1",
+-    [id, status],
++    "UPDATE webhook_events SET status = 'failed', attempts = $2 WHERE id = $1",
++    [id, attempts],
+   );
+ }
+ 
+ export async function enqueue(id: string, endpointId: string, payload: unknown) {
+   await db.query(
+-    "INSERT INTO webhook_events (id, endpoint_id, payload, status) VALUES ($1, $2, $3, 'pending')",
++    "INSERT INTO webhook_events (id, endpoint_id, payload, status, attempts) VALUES ($1, $2, $3, 'pending', 0)",
+     [id, endpointId, payload],
+   );
+ }
+diff --git a/src/worker/pool.ts b/src/worker/pool.ts
+index 646590c..0960cf9 100644
+--- a/src/worker/pool.ts
++++ b/src/worker/pool.ts
+@@ -1,10 +1,10 @@
+-import { send } from "../delivery/deliver";
++import { deliver } from "../delivery/deliver";
+ import { claimNext, loadEndpoint } from "../delivery/store";
+ 
+ const SLOTS = 8;
+ const LEASE_MS = 60_000;
+ 
+-/** Eight workers, one event each. A worker holds its slot until send() returns. */
++/** Eight workers, one event each. A worker holds its slot until deliver() returns. */
+ export function startPool() {
+   for (let i = 0; i < SLOTS; i++) void loop(i);
+ }
+@@ -17,6 +17,6 @@ async function loop(slot: number) {
+       continue;
+     }
+     const endpoint = await loadEndpoint(event.endpointId);
+-    await send(event, endpoint);
++    await deliver(event, endpoint);
+   }
+ }
+diff --git a/web/dashboard/FailedEvents.tsx b/web/dashboard/FailedEvents.tsx
+index bfa3652..a3d124e 100644
+--- a/web/dashboard/FailedEvents.tsx
++++ b/web/dashboard/FailedEvents.tsx
+@@ -7,7 +7,7 @@ export function FailedEvents() {
+       {events.map((e) => (
+         <tr key={e.id}>
+           <td>{e.id}</td>
+-          <td>HTTP {e.lastStatus}</td>
++          <td>{e.attempts} attempts</td>
+         </tr>
+       ))}
+     </table>
