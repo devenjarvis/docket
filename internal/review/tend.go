@@ -26,6 +26,12 @@ const tendTimeout = 30 * time.Minute
 // stops an agent whose fix keeps failing CI from trying forever.
 const maxAutoRuns = 3
 
+// maxEarlier is how many steps from earlier runs a pull request keeps.
+const maxEarlier = 60
+
+// errBranchMoved is a push that found the branch moved on GitHub.
+var errBranchMoved = errors.New("someone pushed to the branch meanwhile, so nothing was pushed")
+
 // Tend modes, from Settings.
 const (
 	TendAuto = "auto"
@@ -72,11 +78,13 @@ func triggers(viewer string, m *model.Mine) []string {
 // e.mu and starts the run with the key it returns, if any.
 func (e *Engine) maybeTendLocked(viewer string, prev, next *model.Mine) bool {
 	items := triggers(viewer, next)
-	next.Seen = strings.Join(items, "\n")
 	if prev == nil {
+		next.Seen = strings.Join(items, "\n")
 		return false
 	}
-	next.Tend, next.AutoRuns = prev.Tend, prev.AutoRuns
+	// An item counts as seen only once a run has covered it, so one that
+	// arrives while no run can start still starts one later.
+	next.Tend, next.AutoRuns, next.Seen = prev.Tend, prev.AutoRuns, prev.Seen
 	seen := map[string]bool{}
 	for _, s := range strings.Split(prev.Seen, "\n") {
 		seen[s] = true
@@ -94,6 +102,7 @@ func (e *Engine) maybeTendLocked(viewer string, prev, next *model.Mine) bool {
 		// Steps still wait for the user; a new plan would pile on them.
 		return false
 	}
+	next.Seen = strings.Join(items, "\n")
 	return true
 }
 
@@ -138,17 +147,39 @@ func (e *Engine) startTend(key string, notes []string, auto bool) error {
 		e.mu.Unlock()
 		return errors.New("the agent is already working on it")
 	}
+	if m.Tend != nil && waiting(m.Tend) > 0 {
+		e.mu.Unlock()
+		return errors.New("steps from the last run still wait for you: approve or send them back first")
+	}
+	if auto && m.AutoRuns >= maxAutoRuns {
+		e.mu.Unlock()
+		return errors.New("the agent has run on its own enough times in a row")
+	}
 	e.tending[key] = true
 	if auto {
 		m.AutoRuns++
 	} else {
 		m.AutoRuns = 0
+		m.Seen = strings.Join(triggers(e.viewer, m), "\n")
 	}
-	if notes == nil && m.Tend != nil && waiting(m.Tend) == 0 {
-		notes = m.Tend.Notes
+	run, earlier := 1, []model.TendAction(nil)
+	if old := m.Tend; old != nil {
+		if notes == nil {
+			notes = old.Notes
+		}
+		prev := max(old.Run, 1)
+		run = prev + 1
+		earlier = append(earlier, old.Earlier...)
+		for _, a := range old.Actions {
+			a.ID = fmt.Sprintf("%d.%s", prev, a.ID)
+			earlier = append(earlier, a)
+		}
+		if len(earlier) > maxEarlier {
+			earlier = earlier[len(earlier)-maxEarlier:]
+		}
 	}
 	m.Tend = &model.Tend{Status: "running", Activity: "Starting", Head: m.PR.HeadSHA, At: time.Now(), Notes: notes, Agent: agentName,
-		Trigger: blockerWords(m.Blockers)}
+		Trigger: blockerWords(m.Blockers), Run: run, Earlier: earlier}
 	e.saveMineLocked(m)
 	snapshot := clone(m)
 	ctx := e.runCtx
@@ -208,11 +239,11 @@ func (e *Engine) tendActivity(key, text string) {
 }
 
 func toBranch(b repo.Branch) model.TendBranch {
-	return model.TendBranch{Dir: b.Dir, Work: b.Work, Scratch: b.Scratch, Out: b.Out, Start: b.Start, Remote: b.Remote}
+	return model.TendBranch{Dir: b.Dir, Work: b.Work, Scratch: b.Scratch, Out: b.Out, Start: b.Start, Remote: b.Remote, GitDir: b.GitDir}
 }
 
 func fromBranch(b model.TendBranch) repo.Branch {
-	return repo.Branch{Dir: b.Dir, Work: b.Work, Scratch: b.Scratch, Out: b.Out, Start: b.Start, Remote: b.Remote}
+	return repo.Branch{Dir: b.Dir, Work: b.Work, Scratch: b.Scratch, Out: b.Out, Start: b.Start, Remote: b.Remote, GitDir: b.GitDir}
 }
 
 // tendPolicy lets the agent read its inputs and the checkout, write and run
@@ -224,10 +255,18 @@ func tendPolicy(b repo.Branch) *acp.Policy {
 func (e *Engine) runTend(parent context.Context, key string, m model.Mine, command, agentName, mode string) {
 	ctx, cancel := context.WithTimeout(parent, tendTimeout)
 	defer cancel()
+	moved := false
 	defer func() {
 		e.mu.Lock()
 		delete(e.tending, key)
 		e.mu.Unlock()
+		if moved && parent.Err() == nil {
+			// Plan once more from the new head; the auto-run cap stops a loop.
+			note := "The branch moved on GitHub while you worked, so your commits were not pushed. Plan again from the new head."
+			if err := e.startTend(key, []string{note}, true); err != nil {
+				e.Logf("%s: no new run after the branch moved: %v", key, err)
+			}
+		}
 	}()
 	failed := func(err error) {
 		e.Logf("%s: tend: %v", key, err)
@@ -316,6 +355,20 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 			problems = tend.Validate(plan, threads, checkIDs, onTop)
 		}
 		if len(problems) == 0 {
+			// Pin each commit to its SHA, so what is judged is what is pushed.
+			for i := range plan.Actions {
+				a := &plan.Actions[i]
+				if a.Commit == "" {
+					continue
+				}
+				if sha, err := e.Branches.Resolve(ctx, b, a.Commit); err != nil {
+					problems = append(problems, fmt.Sprintf("action %s: %v", a.ID, err))
+				} else {
+					a.Commit = sha
+				}
+			}
+		}
+		if len(problems) == 0 {
 			break
 		}
 		if attempt >= maxRetries {
@@ -351,12 +404,19 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 		if a.Verdict.Decision == model.GateAuto {
 			if err := e.carryOut(ctx, key, a.ID, ""); err != nil {
 				e.Logf("%s: %s: %v", key, a.ID, err)
+				if errors.Is(err, errBranchMoved) {
+					moved = true
+				}
 			}
 		}
 	}
 
+	e.reread(key)
 	var done, asks int
 	e.updateTend(key, func(_ *model.Mine, t *model.Tend) {
+		// Ready and free in one step, so an approval sent the moment the
+		// page shows the run as ready is not refused as busy.
+		delete(e.tending, key)
 		t.Status, t.Activity, t.At = "ready", "", time.Now()
 		for _, a := range t.Actions {
 			switch a.State {
@@ -377,7 +437,6 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 		}
 		e.Notify(fmt.Sprintf("%s/%s #%d", pr.Owner, pr.Repo, pr.Number), strings.Join(parts, " "), key)
 	}
-	e.reread(key)
 }
 
 func verbS(n int) string {
@@ -411,25 +470,44 @@ func (e *Engine) judge(ctx context.Context, client *acp.Client, b repo.Branch, m
 	if chainHeld != "" && (a.Kind == model.ActFix || a.Kind == model.ActMergeBase) {
 		return model.Verdict{Decision: model.GateAsk, Reason: "It builds on " + chainHeld + ", which waits for you.", Floor: true}
 	}
+	fixedAlone := false
 	for _, other := range actions[:i] {
+		if other.Kind != model.ActFix && other.Kind != model.ActMergeBase || !contains(other.Threads, a.Thread) || other.Verdict == nil {
+			continue
+		}
 		// A reply or resolve about a fix that waits must wait with it.
-		if other.Verdict != nil && other.Verdict.Decision == model.GateAsk && (other.Kind == model.ActFix || other.Kind == model.ActMergeBase) &&
-			(a.Kind == model.ActReply || a.Kind == model.ActResolve) && contains(other.Threads, a.Thread) {
+		if other.Verdict.Decision == model.GateAsk && (a.Kind == model.ActReply || a.Kind == model.ActResolve) {
 			return model.Verdict{Decision: model.GateAsk, Reason: "It is about " + other.ID + ", which waits for you.", Floor: true}
 		}
+		fixedAlone = true
+	}
+	// Saying a request is done, or closing its thread, goes ahead alone only
+	// when a fix in this plan that goes ahead alone answers that thread.
+	if (a.Kind == model.ActResolve || a.Kind == model.ActReply && a.Stance == "agrees") && !fixedAlone {
+		return model.Verdict{Decision: model.GateAsk, Reason: "No step in this plan that runs on its own fixes this thread.", Floor: true}
 	}
 	if v, held := tend.Floor(a, a.Patch); held {
 		return v
 	}
+	note := ""
 	run := func(ctx context.Context, prompt string) (string, error) {
-		session, err := client.NewSession(ctx, b.Work)
+		// An empty folder, so no instructions file the agent wrote in the
+		// checkout reaches the session that judges it.
+		dir, err := os.MkdirTemp("", "docket-gate-")
+		if err != nil {
+			return "", err
+		}
+		defer os.RemoveAll(dir)
+		session, err := client.NewSession(ctx, dir)
 		if err != nil {
 			return "", err
 		}
 		// The classifier reads only what it is shown.
 		client.SetPolicy(session, &acp.Policy{Job: "gate"})
 		if id, ok := acp.Smallest(client.Models()); ok {
-			_ = client.SetModel(ctx, session, id)
+			if err := client.SetModel(ctx, session, id); err != nil {
+				note = " The agent would not switch to its smaller model, so its default model judged."
+			}
 		}
 		h := &handler{}
 		if _, err := client.Prompt(ctx, session, prompt, h); err != nil {
@@ -437,13 +515,15 @@ func (e *Engine) judge(ctx context.Context, client *acp.Client, b repo.Branch, m
 		}
 		return h.reply(), nil
 	}
-	v := tend.Classify(ctx, run, a, a.Patch, gateContext(m, a))
+	v := tend.Classify(ctx, run, a, a.Patch, gateContext(m, a, actions[:i]))
 	v.Model = client.Model()
+	v.Reason += note
 	return v
 }
 
-// gateContext is the text an action answers: its threads, its checks.
-func gateContext(m model.Mine, a model.TendAction) string {
+// gateContext is the text an action answers, its threads and its checks,
+// and the steps before it in the plan with their verdicts.
+func gateContext(m model.Mine, a model.TendAction, before []model.TendAction) string {
 	want := map[string]bool{a.Thread: a.Thread != ""}
 	for _, t := range a.Threads {
 		want[t] = true
@@ -465,6 +545,16 @@ func gateContext(m model.Mine, a model.TendAction) string {
 			}
 		}
 	}
+	for i, o := range before {
+		if i == 0 {
+			b.WriteString("Earlier steps in this plan:\n")
+		}
+		verdict := "not judged"
+		if o.Verdict != nil {
+			verdict = o.Verdict.Decision
+		}
+		fmt.Fprintf(&b, "  %s %s (threads %s): %s [%s]\n", o.ID, o.Kind, strings.Join(append(append([]string(nil), o.Threads...), o.Thread), " "), o.Why, verdict)
+	}
 	if b.Len() == 0 {
 		return "(nothing beyond the step itself)"
 	}
@@ -482,9 +572,13 @@ func (e *Engine) carryOut(ctx context.Context, key, id, body string) error {
 	t := m.Tend
 	var a model.TendAction
 	found := false
-	for _, x := range t.Actions {
-		if x.ID == id {
-			a, found = x, true
+	for i := range t.Actions {
+		if x := &t.Actions[i]; x.ID == id {
+			a, found = *x, true
+			if x.State == model.StateWaiting {
+				// Claimed under the lock, so a second click finds it taken.
+				x.State = model.StateWorking
+			}
 		}
 	}
 	pr, checks, tip, b := m.PR, m.Checks, t.Tip, fromBranch(t.Branch)
@@ -511,7 +605,7 @@ func (e *Engine) carryOut(ctx context.Context, key, id, body string) error {
 		}
 		err = e.Branches.Push(ctx, b, pr, tip, a.Commit)
 		if errors.Is(err, repo.ErrMoved) {
-			err = errors.New("someone pushed to the branch meanwhile, so nothing was pushed; ask the agent to look again")
+			err = errBranchMoved
 		}
 		undo, newTip, result = tip, a.Commit, "Pushed "+short(a.Commit)+"."
 	case model.ActReply:
@@ -582,6 +676,12 @@ func short(sha string) string {
 // (with body as the edited reply text), send-back rejects it with a note
 // for the agent's next run.
 func (e *Engine) Decide(ctx context.Context, key, id, choice, body, note string) error {
+	if choice != "approve" && choice != "send-back" {
+		return fmt.Errorf("unknown choice %q", choice)
+	}
+	if e.busy(key) {
+		return errors.New("the agent is still working on this pull request: wait for it to finish")
+	}
 	switch choice {
 	case "approve":
 		e.resetAuto(key)
@@ -639,6 +739,12 @@ func (e *Engine) Decide(ctx context.Context, key, id, choice, body, note string)
 	return nil
 }
 
+func (e *Engine) busy(key string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.tending[key]
+}
+
 func (e *Engine) resetAuto(key string) {
 	e.mu.Lock()
 	if m := e.mine[key]; m != nil {
@@ -656,18 +762,27 @@ func (e *Engine) Undo(ctx context.Context, key, id string) error {
 		e.mu.Unlock()
 		return errors.New("no such run")
 	}
-	var a model.TendAction
-	for _, x := range m.Tend.Actions {
-		if x.ID == id {
-			a = x
-		}
+	if e.tending[key] {
+		e.mu.Unlock()
+		return errors.New("the agent is working on this pull request: wait for it to finish")
 	}
-	pr, tip, b := m.PR, m.Tend.Tip, fromBranch(m.Tend.Branch)
-	e.mu.Unlock()
-	if a.ID == "" || a.State != model.StateDone {
+	x := findAction(m.Tend, id)
+	if x == nil || x.State != model.StateDone {
+		e.mu.Unlock()
 		return errors.New("only a step that was carried out can be undone")
 	}
-	e.resetAuto(key)
+	a := *x
+	x.State = model.StateWorking
+	m.AutoRuns = 0
+	pr, tip, b := m.PR, m.Tend.Tip, fromBranch(m.Tend.Branch)
+	e.mu.Unlock()
+	restore := func() {
+		e.updateTend(key, func(_ *model.Mine, t *model.Tend) {
+			if x := findAction(t, id); x != nil && x.State == model.StateWorking {
+				x.State = model.StateDone
+			}
+		})
+	}
 
 	var err error
 	newTip := tip
@@ -684,21 +799,36 @@ func (e *Engine) Undo(ctx context.Context, key, id string) error {
 	case model.ActResolve:
 		err = e.Inbox.Resolve(ctx, pr, a.Thread, false)
 	default:
+		restore()
 		return errors.New("that step cannot be undone")
 	}
 	if err != nil {
+		restore()
 		return err
 	}
 	e.updateTend(key, func(m *model.Mine, t *model.Tend) {
-		for i := range t.Actions {
-			if t.Actions[i].ID == id {
-				t.Actions[i].State, t.Actions[i].Result, t.Actions[i].At = model.StateUndone, "Undone.", time.Now()
-			}
+		if x := findAction(t, id); x != nil {
+			x.State, x.Result, x.At = model.StateUndone, "Undone.", time.Now()
 		}
 		if newTip != tip {
 			t.Tip, m.PR.HeadSHA = newTip, newTip
 		}
 	})
 	e.reread(key)
+	return nil
+}
+
+// findAction finds a step of this run or an earlier one.
+func findAction(t *model.Tend, id string) *model.TendAction {
+	for i := range t.Actions {
+		if t.Actions[i].ID == id {
+			return &t.Actions[i]
+		}
+	}
+	for i := range t.Earlier {
+		if t.Earlier[i].ID == id {
+			return &t.Earlier[i]
+		}
+	}
 	return nil
 }

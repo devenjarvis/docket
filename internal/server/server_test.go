@@ -131,3 +131,10 @@ func TestTendRoutes(t *testing.T) {
 		t.Errorf("tend mode = %q, want ask", st.Config.Tend)
 	}
 }
+
+func TestUndoOfAnUnknownStepFails(t *testing.T) {
+	ts := serve(t)
+	if code, body := postJSON(t, ts, "/api/undo", map[string]any{"key": demo.BlockedKey, "action": "a9"}); code != 400 {
+		t.Errorf("undo of an unknown step: %d %s", code, body)
+	}
+}

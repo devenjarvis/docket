@@ -22,6 +22,7 @@ const (
 // Tend action states.
 const (
 	StateWaiting  = "waiting"  // an ask the user has not answered
+	StateWorking  = "working"  // being carried out or undone right now
 	StateDone     = "done"     // carried out
 	StateRejected = "rejected" // the user sent it back
 	StateUndone   = "undone"   // carried out, then undone
@@ -88,6 +89,11 @@ type Tend struct {
 	Tip     string       `json:"tip,omitempty"`
 	Summary string       `json:"summary,omitempty"`
 	Actions []TendAction `json:"actions,omitempty"`
+	// Run counts the runs on this pull request, from 1.
+	Run int `json:"run,omitempty"`
+	// Earlier holds what earlier runs did, newest last, with ids prefixed by
+	// their run ("2.a1"), so their Undo still works.
+	Earlier []TendAction `json:"earlier,omitempty"`
 	// Trigger names what started it: the blockers, in words.
 	Trigger string    `json:"trigger,omitempty"`
 	At      time.Time `json:"at"`
@@ -110,4 +116,5 @@ type TendBranch struct {
 	Out     string `json:"out"`
 	Start   string `json:"start"`
 	Remote  string `json:"remote"`
+	GitDir  string `json:"gitDir"`
 }

@@ -39,6 +39,15 @@ func (e *Engine) loadMineLocked() {
 		}
 		var m model.Mine
 		if json.Unmarshal(b, &m) == nil && m.PR.Number != 0 {
+			if t := m.Tend; t != nil && t.Status == "running" {
+				// Docket stopped during the run; nothing is carrying it on.
+				t.Status, t.Activity, t.Error = "failed", "", "Docket stopped before this run finished."
+				for i := range t.Actions {
+					if t.Actions[i].State == model.StateWorking {
+						t.Actions[i].State, t.Actions[i].Result = model.StateFailed, "Docket stopped while doing this; check the pull request before trying again."
+					}
+				}
+			}
 			e.mine[m.PR.Key()] = &m
 		}
 	}
@@ -256,6 +265,7 @@ func clone(m *model.Mine) model.Mine {
 		t := *m.Tend
 		t.Actions = append([]model.TendAction(nil), m.Tend.Actions...)
 		t.Notes = append([]string(nil), m.Tend.Notes...)
+		t.Earlier = append([]model.TendAction(nil), m.Tend.Earlier...)
 		cp.Tend = &t
 	}
 	return cp

@@ -117,6 +117,10 @@ func (c Checkout) Push(_ context.Context, _ repo.Branch, pr model.PR, _, to stri
 	return config.WriteJSON(filepath.Join(c.Home, "posted", fmt.Sprintf("push-%s-%d-%d.json", pr.Repo, pr.Number, time.Now().UnixNano())), map[string]string{"to": to})
 }
 
+func (Checkout) Resolve(_ context.Context, _ repo.Branch, ref string) (string, error) {
+	return ref, nil
+}
+
 func (Checkout) Revert(_ context.Context, _ repo.Branch, _, sha string) (string, error) {
 	return "demo-revert-" + sha, nil
 }

@@ -167,3 +167,83 @@ func TestRevertUndoesACommit(t *testing.T) {
 		t.Errorf("revert parent = %s, want the tip %s", parent, second)
 	}
 }
+
+func TestDocketsGitIgnoresAGitFileTheAgentRewrote(t *testing.T) {
+	f := newBranch(t)
+	ctx := context.Background()
+	fix := f.commit(t, "b.txt", "fixed\n")
+	// The agent may write anywhere in the checkout, .git included.
+	writeFile(t, f.b.Work, ".git", "gitdir: "+t.TempDir()+"\n")
+	if !f.g.OnTop(ctx, f.b, fix) {
+		t.Fatal("OnTop followed the rewritten .git file")
+	}
+	if p, err := f.g.Patch(ctx, f.b, f.b.Start, fix); err != nil || !strings.Contains(p, "+fixed") {
+		t.Fatalf("patch = %q, %v", p, err)
+	}
+	if err := f.g.Push(ctx, f.b, f.pr, f.b.Start, fix); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.originFeature(t); got != fix {
+		t.Errorf("origin feature = %s, want %s", got, fix)
+	}
+}
+
+func TestPrepareBranchStartsFromACleanHead(t *testing.T) {
+	f := newBranch(t)
+	f.commit(t, "b.txt", "rejected\n")
+	writeFile(t, f.b.Work, "loose.txt", "left over\n")
+	b, err := f.g.PrepareBranch(context.Background(), f.pr, model.MergeState{HeadRepo: "o/r"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := run(t, b.Work, "rev-parse", "HEAD"); got != f.head {
+		t.Errorf("HEAD = %s, want the pull request's head %s", got, f.head)
+	}
+	for _, name := range []string{"b.txt", "loose.txt"} {
+		if _, err := os.Stat(filepath.Join(b.Work, name)); err == nil {
+			t.Errorf("%s survived into the new checkout", name)
+		}
+	}
+}
+
+func TestPrepareBranchRefusesAHeadItCannotPushTo(t *testing.T) {
+	f := newBranch(t)
+	ctx := context.Background()
+	pr := f.pr
+	pr.Author = "me"
+	if _, err := f.g.PrepareBranch(ctx, pr, model.MergeState{}); err == nil {
+		t.Error("a pull request whose head repository is gone was prepared")
+	}
+	if _, err := f.g.PrepareBranch(ctx, pr, model.MergeState{HeadRepo: "someone/r"}); err == nil {
+		t.Error("a fork that does not let maintainers push was prepared")
+	}
+	if _, err := f.g.PrepareBranch(ctx, pr, model.MergeState{HeadRepo: "me/r"}); err != nil {
+		t.Errorf("the author's own fork: %v", err)
+	}
+}
+
+func TestPatchShowsARenameAsADeleteAndAnAdd(t *testing.T) {
+	f := newBranch(t)
+	run(t, f.b.Work, "mv", "a.txt", "moved.txt")
+	run(t, f.b.Work, "commit", "-q", "-m", "move")
+	mv := run(t, f.b.Work, "rev-parse", "HEAD")
+	p, err := f.g.Patch(context.Background(), f.b, f.b.Start, mv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(p, "deleted file mode") || !strings.Contains(p, "new file mode") {
+		t.Errorf("the rename hides what it removed:\n%s", p)
+	}
+}
+
+func TestResolveGivesAFullSHA(t *testing.T) {
+	f := newBranch(t)
+	fix := f.commit(t, "b.txt", "fixed\n")
+	got, err := f.g.Resolve(context.Background(), f.b, "HEAD")
+	if err != nil || got != fix {
+		t.Errorf("Resolve(HEAD) = %q, %v; want %s", got, err, fix)
+	}
+	if _, err := f.g.Resolve(context.Background(), f.b, "no-such-ref"); err == nil {
+		t.Error("a missing ref resolved")
+	}
+}

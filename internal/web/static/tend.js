@@ -19,9 +19,14 @@ const STATE = {
   rejected: ["Sent back", ".faint"],
   failed: ["Failed", ".red"],
   skipped: ["Skipped", ".faint"],
+  working: ["Working", ".open"],
 };
 
-async function send(path, body, msg) {
+// send posts once: the button that sent it stays off until the answer, so a
+// second click cannot act twice.
+async function send(path, body, msg, ev) {
+  const btn = ev && ev.currentTarget;
+  if (btn) btn.disabled = true;
   try {
     await post(path, body);
     if (msg) toast(msg);
@@ -29,6 +34,7 @@ async function send(path, body, msg) {
     return true;
   } catch (e) {
     toast(e.message);
+    if (btn) btn.disabled = false;
     return false;
   }
 }
@@ -67,15 +73,15 @@ function card(key, m, a) {
   const body = a.kind === "reply" ? h("textarea.field", { rows: 4, "aria-label": "Reply text" }, a.body || "") : null;
   const note = h("input.field", { placeholder: "What should it do instead?", "aria-label": "Note for the agent" });
   const back = h("div.row.hidden", { style: { gap: "8px", flexWrap: "nowrap", marginTop: "8px" } }, note,
-    h("button.btn", { onclick: () => send("/api/decide", { key, action: a.id, choice: "send-back", note: note.value }, "Sent back. The agent plans again with your note.") }, "Send back"));
+    h("button.btn", { onclick: (ev) => send("/api/decide", { key, action: a.id, choice: "send-back", note: note.value }, "Sent back. The agent plans again with your note.", ev) }, "Send back"));
   return h("div.block", { style: { border: "2px solid var(--red)", padding: "12px", marginBottom: "12px" } },
     h("div.row", { style: { alignItems: "baseline", gap: "8px" } }, h("span.stamp.red", KIND[a.kind] || a.kind), h("span", prose(a.why))),
     a.thread && threadLine(m, a.thread),
     verdictLine(a),
     a.kind === "reply" ? h("div", { style: { marginTop: "8px" } }, body) : patchView(a.patch),
     h("div.row", { style: { gap: "8px", marginTop: "8px" } },
-      h("button.btn.primary", { onclick: () => send("/api/decide", { key, action: a.id, choice: "approve", body: body ? body.value : "" },
-        a.kind === "fix" || a.kind === "merge-base" ? "Pushed." : "Done.") }, a.kind === "reply" ? "Post reply" : a.kind === "fix" || a.kind === "merge-base" ? "Push it" : "Do it"),
+      h("button.btn.primary", { onclick: (ev) => send("/api/decide", { key, action: a.id, choice: "approve", body: body ? body.value : "" },
+        a.kind === "fix" || a.kind === "merge-base" ? "Pushed." : "Done.", ev) }, a.kind === "reply" ? "Post reply" : a.kind === "fix" || a.kind === "merge-base" ? "Push it" : "Do it"),
       h("button.btn.quiet", { onclick: () => { back.classList.toggle("hidden"); note.focus(); } }, "Send back…")),
     back);
 }
@@ -91,7 +97,7 @@ function logRow(key, m, a) {
       a.patch && open),
     h("td", h("span.stamp" + cls, label), a.verdict && h("div.small.muted", a.verdict.decision === "auto" ? "on its own" : "you approved")),
     h("td.r.small.muted", a.at && !a.at.startsWith("0001") ? ago(a.at) : ""),
-    h("td.r", a.state === "done" && a.undo && h("button.btn.small", { onclick: () => send("/api/undo", { key, action: a.id }, "Undone.") }, "Undo")));
+    h("td.r", a.state === "done" && a.undo && h("button.btn.small", { onclick: (ev) => send("/api/undo", { key, action: a.id }, "Undone.", ev) }, "Undo")));
 }
 
 // tendStatus is the one-line state for the list of own pull requests.
@@ -110,10 +116,11 @@ export function renderTend(S) {
   const m = S.mine, p = m.pr, key = p.owner + "/" + p.repo + "#" + p.number, t = m.tend;
   const mode = S.st.config.tend || "auto";
   const running = t && t.status === "running";
+  const held = t ? (t.actions || []).filter((a) => a.state === "waiting").length : 0;
   const start = h("button.btn" + (t ? "" : ".primary"), {
-    disabled: running || mode === "off" || null,
-    title: mode === "off" ? "The agent is off for your pull requests. Turn it on in Settings." : "",
-    onclick: () => send("/api/tend", { key }, "The agent is on it."),
+    disabled: running || mode === "off" || held > 0 || null,
+    title: mode === "off" ? "The agent is off for your pull requests. Turn it on in Settings." : held ? "Answer the steps that wait for you first." : "",
+    onclick: (ev) => send("/api/tend", { key }, "The agent is on it.", ev),
   }, t ? "Run the agent again" : "Let the agent work on it");
   const modeLine = { auto: "It acts on its own when a step is safe, and asks you about the rest.", ask: "Every step waits for you.", off: "It is off. Turn it on in Settings." }[mode];
 
@@ -127,6 +134,7 @@ export function renderTend(S) {
   const actions = t.actions || [];
   const waiting = actions.filter((a) => a.state === "waiting");
   const log = actions.filter((a) => a.state && a.state !== "waiting");
+  const earlier = [...(t.earlier || [])].reverse();
   return h("div.block", head,
     h("p.small.muted", modeLine + (t.agent ? ` ${t.agent}${t.model && t.model !== t.agent ? " on " + t.model : ""}.` : "")),
     running && h("div.banner", h("b", "Working: "), h("span", { "data-tend": key }, t.activity || "Starting")),
@@ -139,5 +147,8 @@ export function renderTend(S) {
     log.length > 0 && h("div", { style: { marginTop: "12px" } },
       h("div.label", "What it did"),
       h("div.scroll-x", h("table.reg", h("tbody", log.map((a) => logRow(key, m, a)))))),
+    earlier.length > 0 && h("details", { style: { marginTop: "12px" } },
+      h("summary.label", `Earlier runs · ${earlier.length} ${earlier.length === 1 ? "step" : "steps"}`),
+      h("div.scroll-x", h("table.reg", h("tbody", earlier.map((a) => logRow(key, m, a)))))),
     !running && !actions.length && t.status === "ready" && h("p", "The agent found nothing it could do."));
 }

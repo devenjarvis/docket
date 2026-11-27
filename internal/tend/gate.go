@@ -70,17 +70,32 @@ func Floor(a model.TendAction, patch string) (model.Verdict, bool) {
 		}
 	case model.ActFix:
 		files := diff.Parse(patch)
+		if len(files) == 0 {
+			return ask("Docket could not read this change, so it cannot judge it.")
+		}
 		changed := 0
 		for _, f := range files {
-			p := strings.ToLower(f.Path)
-			base := path.Base(p)
-			switch {
-			case manifests[base] || requirementsRe.MatchString(base):
-				return ask(fmt.Sprintf("It changes dependencies (%s).", f.Path))
-			case toolchains[base]:
-				return ask(fmt.Sprintf("It changes the toolchain (%s).", f.Path))
-			case ciFiles[base] || hasPrefix(p, ciDirs):
-				return ask(fmt.Sprintf("It changes CI configuration (%s).", f.Path))
+			if f.Path == "" {
+				return ask("Docket could not read a file name in this change.")
+			}
+			// A file moved away is judged as the file it was, too.
+			for _, name := range []string{f.Path, f.OldPath} {
+				if name == "" {
+					continue
+				}
+				p := strings.ToLower(name)
+				base := path.Base(p)
+				switch {
+				case manifests[base] || requirementsRe.MatchString(base):
+					return ask(fmt.Sprintf("It changes dependencies (%s).", name))
+				case toolchains[base]:
+					return ask(fmt.Sprintf("It changes the toolchain (%s).", name))
+				case ciFiles[base] || hasPrefix(p, ciDirs):
+					return ask(fmt.Sprintf("It changes CI configuration (%s).", name))
+				}
+			}
+			if f.OldPath != "" && testFileRe.MatchString(path.Base(f.OldPath)) && !testFileRe.MatchString(path.Base(f.Path)) {
+				return ask(fmt.Sprintf("It moves a test file out of the tests (%s).", f.OldPath))
 			}
 			if testFileRe.MatchString(path.Base(f.Path)) {
 				if f.Status == "deleted" {

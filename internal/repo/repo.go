@@ -59,13 +59,19 @@ func Layout(home string, pr model.PR) Workspace {
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {
+	return gitWith(ctx, dir, nil, args...)
+}
+
+// gitWith runs git with global options pre before args.
+func gitWith(ctx context.Context, dir string, pre []string, args ...string) (string, error) {
 	// gh hands git a token for private repositories without the user having
 	// to run `gh auth setup-git`.
 	full := append([]string{
 		"-c", "credential.helper=",
 		"-c", "credential.helper=!gh auth git-credential",
 		"-c", "advice.detachedHead=false",
-	}, args...)
+	}, pre...)
+	full = append(full, args...)
 	cmd := exec.CommandContext(ctx, "git", full...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")

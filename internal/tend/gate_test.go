@@ -45,6 +45,11 @@ func TestFloor(t *testing.T) {
 		{"declining reply", model.TendAction{Kind: model.ActReply, Stance: "declines"}, "", true},
 		{"agreeing reply", model.TendAction{Kind: model.ActReply, Stance: "agrees"}, "", false},
 		{"rerun", model.TendAction{Kind: model.ActRerun}, "", false},
+		{"no patch", fix, "", true},
+		{"ci file moved away", fix, "diff --git a/.github/workflows/ci.yml b/docs/ci.txt\nsimilarity index 100%\nrename from .github/workflows/ci.yml\nrename to docs/ci.txt\n", true},
+		{"go.mod moved away", fix, "diff --git a/go.mod b/x\nsimilarity index 100%\nrename from go.mod\nrename to x\n", true},
+		{"test moved away", fix, "diff --git a/foo_test.go b/foo.txt\nsimilarity index 100%\nrename from foo_test.go\nrename to foo.txt\n", true},
+		{"quoted path", fix, "diff --git \"a/\\303\\251/package.json\" \"b/\\303\\251/package.json\"\n--- \"a/\\303\\251/package.json\"\n+++ \"b/\\303\\251/package.json\"\n@@ -1,1 +1,1 @@\n-a\n+b\n", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -3,6 +3,7 @@ package review_test
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -130,5 +131,76 @@ func TestOffMeansNoRun(t *testing.T) {
 	}
 	if err := eng.Tend(demo.BlockedKey); err == nil {
 		t.Error("a run started with tending off")
+	}
+}
+
+func TestADoubleClickActsOnce(t *testing.T) {
+	eng, _ := startTend(t, "auto")
+	ctx := context.Background()
+	if err := eng.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.Tend(demo.BlockedKey); err != nil {
+		t.Fatal(err)
+	}
+	m := waitTend(t, eng, demo.BlockedKey)
+	before := len(m.Conversation.Threads[1].Comments)
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = eng.Decide(ctx, demo.BlockedKey, "a5", "approve", "", "")
+		}()
+	}
+	wg.Wait()
+	if (errs[0] == nil) == (errs[1] == nil) {
+		t.Fatalf("exactly one approval should act: %v / %v", errs[0], errs[1])
+	}
+	m, _ = eng.MineOne(demo.BlockedKey)
+	if got := len(m.Conversation.Threads[1].Comments); got != before+1 {
+		t.Errorf("the reply posted %d times", got-before)
+	}
+}
+
+func TestUndoStillWorksAfterTheNextRun(t *testing.T) {
+	eng, _ := startTend(t, "auto")
+	ctx := context.Background()
+	if err := eng.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.Tend(demo.BlockedKey); err != nil {
+		t.Fatal(err)
+	}
+	waitTend(t, eng, demo.BlockedKey)
+	if err := eng.Tend(demo.BlockedKey); err == nil {
+		t.Error("a new run started while steps wait for the user")
+	}
+	if err := eng.Decide(ctx, demo.BlockedKey, "a5", "approve", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	// Sending back the last waiting step starts the next run.
+	if err := eng.Decide(ctx, demo.BlockedKey, "a4", "send-back", "", "Not at startup."); err != nil {
+		t.Fatal(err)
+	}
+	m := waitTend(t, eng, demo.BlockedKey)
+	if m.Tend.Run != 2 {
+		t.Fatalf("run = %d, want 2", m.Tend.Run)
+	}
+	var first *model.TendAction
+	for i := range m.Tend.Earlier {
+		if m.Tend.Earlier[i].ID == "1.a1" {
+			first = &m.Tend.Earlier[i]
+		}
+	}
+	if first == nil || first.State != model.StateDone || first.Undo == "" {
+		t.Fatalf("the first run's pushed rename is gone from the log: %+v", m.Tend.Earlier)
+	}
+	if err := eng.Undo(ctx, demo.BlockedKey, "1.a1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.Undo(ctx, demo.BlockedKey, "1.a1"); err == nil {
+		t.Error("the same step was undone twice")
 	}
 }
