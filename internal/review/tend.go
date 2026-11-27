@@ -402,6 +402,14 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 	})
 	for _, a := range actions {
 		if a.Verdict.Decision == model.GateAuto {
+			if (a.Kind == model.ActReply || a.Kind == model.ActResolve) && !e.fixLanded(key, a) {
+				e.updateTend(key, func(_ *model.Mine, t *model.Tend) {
+					if x := findAction(t, a.ID); x != nil && x.State == model.StateWaiting {
+						x.State, x.Result = model.StateSkipped, "The fix it reports did not go out."
+					}
+				})
+				continue
+			}
 			if err := e.carryOut(ctx, key, a.ID, ""); err != nil {
 				e.Logf("%s: %s: %v", key, a.ID, err)
 				if errors.Is(err, errBranchMoved) {
@@ -599,6 +607,10 @@ func (e *Engine) carryOut(ctx context.Context, key, id, body string) error {
 	case model.ActFix, model.ActMergeBase:
 		on := b
 		on.Start = tip
+		if held := unpushedBefore(actionsOf(e, key), id); held != "" {
+			err = errors.New("it builds on " + held + ", which has not been pushed: push or send that one back first")
+			break
+		}
 		if !e.Branches.OnTop(ctx, on, a.Commit) {
 			err = errors.New("it builds on a step that has not been pushed: approve that one first")
 			break
@@ -684,6 +696,10 @@ func (e *Engine) Decide(ctx context.Context, key, id, choice, body, note string)
 	}
 	switch choice {
 	case "approve":
+		if !e.claim(key) {
+			return errors.New("the agent is still working on this pull request: wait for it to finish")
+		}
+		defer e.release(key)
 		e.resetAuto(key)
 		err := e.carryOut(ctx, key, id, body)
 		e.reread(key)
@@ -739,6 +755,58 @@ func (e *Engine) Decide(ctx context.Context, key, id, choice, body, note string)
 	return nil
 }
 
+// claim marks key as being worked on, so no run starts under a step the
+// user is carrying out. It reports false when something already is.
+func (e *Engine) claim(key string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.tending[key] {
+		return false
+	}
+	e.tending[key] = true
+	return true
+}
+
+func (e *Engine) release(key string) {
+	e.mu.Lock()
+	delete(e.tending, key)
+	e.mu.Unlock()
+}
+
+func actionsOf(e *Engine, key string) []model.TendAction {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if m := e.mine[key]; m != nil && m.Tend != nil {
+		return append([]model.TendAction(nil), m.Tend.Actions...)
+	}
+	return nil
+}
+
+// unpushedBefore names a commit step before id that is not pushed: pushing
+// id would carry it to GitHub unseen.
+func unpushedBefore(actions []model.TendAction, id string) string {
+	for _, a := range actions {
+		if a.ID == id {
+			return ""
+		}
+		if (a.Kind == model.ActFix || a.Kind == model.ActMergeBase) && a.State != model.StateDone {
+			return a.ID
+		}
+	}
+	return ""
+}
+
+// fixLanded reports whether every fix in the run that answers a's thread was
+// pushed.
+func (e *Engine) fixLanded(key string, a model.TendAction) bool {
+	for _, o := range actionsOf(e, key) {
+		if (o.Kind == model.ActFix || o.Kind == model.ActMergeBase) && contains(o.Threads, a.Thread) && o.State != model.StateDone {
+			return false
+		}
+	}
+	return true
+}
+
 func (e *Engine) busy(key string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -766,6 +834,8 @@ func (e *Engine) Undo(ctx context.Context, key, id string) error {
 		e.mu.Unlock()
 		return errors.New("the agent is working on this pull request: wait for it to finish")
 	}
+	e.tending[key] = true
+	defer e.release(key)
 	x := findAction(m.Tend, id)
 	if x == nil || x.State != model.StateDone {
 		e.mu.Unlock()

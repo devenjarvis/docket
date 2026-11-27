@@ -43,3 +43,18 @@ func TestARunCutShortByARestartIsMarkedFailed(t *testing.T) {
 		t.Errorf("after a restart: %+v", got.Tend)
 	}
 }
+
+func TestAPushNeverCarriesAHeldFix(t *testing.T) {
+	acts := []model.TendAction{
+		{ID: "a1", Kind: model.ActFix, State: model.StateWaiting},
+		{ID: "a2", Kind: model.ActReply, State: model.StateWaiting},
+		{ID: "a3", Kind: model.ActFix, State: model.StateWaiting},
+	}
+	if got := unpushedBefore(acts, "a3"); got != "a1" {
+		t.Errorf("unpushedBefore = %q, want a1", got)
+	}
+	acts[0].State = model.StateDone
+	if got := unpushedBefore(acts, "a3"); got != "" {
+		t.Errorf("with a1 pushed: %q", got)
+	}
+}
