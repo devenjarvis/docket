@@ -1,16 +1,19 @@
 import { h, get, post, toast, plural, ago, tri } from "./dom.js";
 import { renderReview, reviewKeys, currentTimeTarget } from "./review.js";
 import { renderRules } from "./rules.js";
+import { renderMineList, renderMine } from "./mine.js";
 
 const app = document.getElementById("app");
-export const S = { st: null, review: null, draft: null, rules: null, route: {}, stale: false };
+export const S = { st: null, review: null, draft: null, rules: null, mine: null, conv: null, route: {}, stale: false };
 
-// --- routes: #/, #/r/<owner>/<repo>/<n>/<sheet>[/<id>], #/rules, #/settings
+// --- routes: #/, #/r/<owner>/<repo>/<n>/<sheet>[/<id>], #/mine, #/m/<owner>/<repo>/<n>, #/rules, #/settings
 function parse() {
   const p = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (p[0] === "r" && p.length >= 4) {
     return { name: "review", key: `${p[1]}/${p[2]}#${p[3]}`, sheet: p[4] || "brief", id: p[5] || "" };
   }
+  if (p[0] === "m" && p.length >= 4) return { name: "minepr", key: `${p[1]}/${p[2]}#${p[3]}` };
+  if (p[0] === "mine") return { name: "mine" };
   if (p[0] === "rules") return { name: "rules" };
   if (p[0] === "settings") return { name: "settings" };
   return { name: "queue" };
@@ -29,12 +32,15 @@ async function load() {
     if (S.route.name === "review") {
       S.review = await get("/api/review?key=" + encodeURIComponent(S.route.key));
       S.draft = S.route.sheet === "signoff" && S.review.brief ? await get("/api/draft?key=" + encodeURIComponent(S.route.key)) : null;
+      S.conv = S.route.sheet === "conversation" ? await get("/api/conversation?key=" + encodeURIComponent(S.route.key)) : null;
     } else {
       S.review = null;
     }
+    S.mine = S.route.name === "minepr" ? await get("/api/mine/pr?key=" + encodeURIComponent(S.route.key)) : null;
     if (S.route.name === "rules") S.rules = await get("/api/rules");
   } catch (e) {
     if (S.route.name === "review") { toast(e.message); go("#/"); return; }
+    if (S.route.name === "minepr") { toast(e.message); go("#/mine"); return; }
     toast(e.message);
   }
   render();
@@ -59,9 +65,12 @@ function render() {
   if (S.route.name === "review" && S.review) view = renderReview(S);
   else if (S.route.name === "rules") view = [masthead(), renderRules(S)];
   else if (S.route.name === "settings") view = [masthead(), settings()];
+  else if (S.route.name === "minepr" && S.mine) view = renderMine(S);
+  else if (S.route.name === "mine") view = [masthead(), h("div.sheet", inboxTabs("mine"), h("div.body", renderMineList(S)))];
   else view = [masthead(), queue()];
   app.replaceChildren(...[view].flat());
-  document.title = S.route.name === "review" && S.review ? `${S.review.pr.repo} #${S.review.pr.number} · Docket` : "Docket";
+  const pr = (S.route.name === "review" && S.review && S.review.pr) || (S.route.name === "minepr" && S.mine && S.mine.pr);
+  document.title = pr ? `${pr.repo} #${pr.number} · Docket` : "Docket";
 }
 
 // --- masthead: the app's own title block ------------------------------------
@@ -77,6 +86,16 @@ function masthead() {
         q.syncError ? "sync failed" : "checked " + ago(q.lastSync))),
       h("a", { href: "#/rules", style: { textDecoration: "none" } }, h("span.label", "Rulebook"), h("span.cell-v", plural(S.st.rules, "rule"))),
       h("a", { href: "#/settings", style: { textDecoration: "none" } }, h("span.label", "Settings"), h("span.cell-v", S.st.demo ? "demo mode" : "open"))));
+}
+
+// inboxTabs switches between the pull requests waiting on the user's review
+// and the ones they wrote.
+function inboxTabs(active) {
+  const open = (S.st.queue.reviews || []).filter((r) => r.lane !== "done").length;
+  const mine = S.st.mine || [], need = mine.filter((m) => m.lane === "needs-you").length;
+  return h("nav.sheets", { "aria-label": "Inbox" },
+    h("a", { href: "#/", "aria-current": active === "queue" ? "page" : null }, `To review · ${open}`),
+    h("a", { href: "#/mine", "aria-current": active === "mine" ? "page" : null }, `Yours · ${mine.length}`, need ? h("span.stamp.red", { style: { marginLeft: "8px", padding: "2px 5px" } }, `${need} need you`) : null));
 }
 
 // --- queue -------------------------------------------------------------------
@@ -134,8 +153,8 @@ function queue() {
         h("tbody", list.map(row)))));
   });
 
-  return h("div.sheet", h("div.body",
-    S.st.demo && h("div.banner", "Demo mode: three sample pull requests and a scripted agent. Nothing is read from or posted to GitHub."),
+  return h("div.sheet", inboxTabs("queue"), h("div.body",
+    S.st.demo && h("div.banner", "Demo mode: sample pull requests (three to review, three of yours) and a scripted agent. Nothing is read from or posted to GitHub."),
     q.syncError && h("div.banner.red", q.syncError),
     !S.st.agent.command && h("div.banner.red", "No agent is set up, so nothing can be read. ", h("a", { href: "#/settings" }, "Pick one in Settings.")),
     h("div.tally",
@@ -223,6 +242,15 @@ function connect() {
       return;
     }
     if (e.type === "review" && S.route.name === "review" && e.key !== S.route.key) return;
+    if (e.type === "mine") {
+      const r = S.route.name;
+      if (r === "queue" || r === "mine" || (r === "minepr" && (!e.key || e.key === S.route.key))) refresh();
+      return;
+    }
+    if (e.type === "conversation") {
+      if (S.route.name === "review" && S.route.sheet === "conversation" && e.key === S.route.key) refresh();
+      return;
+    }
     refresh();
   };
   es.onerror = () => { es.close(); setTimeout(connect, 2000); };

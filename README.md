@@ -27,6 +27,14 @@ You need `git`, `gh` (signed in: `gh auth login`) and one ACP agent on your PATH
 4. **Signed.** Approve stays locked while a decision is unanswered, blocking or waiting on the author. The review posts as one GitHub review with inline comments, attached to the commit that was read, with a receipt of what you read and what you took on the agent's proof.
 5. **Re-read.** When the author pushes, Docket reads again, carries your answers over for every decision that still stands, and tells you what changed.
 
+The agent also gets what other reviewers have already said, so it does not raise a point someone else already made. Every pull request has a Conversation sheet: reviews, line threads and comments, where you can reply, resolve and comment without opening GitHub.
+
+## Your own pull requests
+
+The Yours tab lists every open pull request you wrote, sorted by whose move it is: **Needs you** (a failing check, a conflict, changes requested, a thread waiting on your reply), **Waiting on others** (checks running, a review not in yet) and **Ready to merge**. Each one shows what stands in the way in plain words, its checks with the end of any failed log, and its conversation.
+
+From there you merge (with one confirmation, and only with the methods the repository allows), turn on GitHub's auto-merge, update the branch, mark a draft ready, ask for review, re-run failed jobs, and answer every thread. Docket notifies you when one becomes ready to merge, starts to need you, or gets a review or comment from someone else.
+
 ## What you should know before trusting it
 
 - **The agent runs the pull request's code on your computer.** That is what lets a claim be proved. Turn it off in Settings for repositories whose authors you would not run code from; the agent then only reads and searches.
@@ -42,6 +50,7 @@ Everything is under `~/.docket` (`DOCKET_HOME` to move it):
 |---|---|
 | `rules/` | Your rulebook: one Markdown file per rule, `stats.json`, and a git history of every change |
 | `state/` | One JSON file per review: the brief, your answers, your time |
+| `state/mine/` | One JSON file per pull request of yours: merge state, checks, conversation |
 | `reviews/<owner>/<repo>/<n>/<sha>/` | The checkouts, the diff, the agent's probes (`out/`) |
 | `repos/` | Blobless bare clones |
 | `map.json` | Which parts of which repositories you have reviewed, and when |

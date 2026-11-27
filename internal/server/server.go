@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -76,6 +77,11 @@ func New(eng *review.Engine, rs *rules.Store, home string) *Server {
 	s.mux.HandleFunc("POST /api/rule", s.saveRule)
 	s.mux.HandleFunc("POST /api/settings", s.settings)
 	s.mux.HandleFunc("POST /api/open", s.open)
+	s.mux.HandleFunc("GET /api/mine", s.mine)
+	s.mux.HandleFunc("GET /api/mine/pr", s.minePR)
+	s.mux.HandleFunc("GET /api/conversation", s.conversation)
+	s.mux.HandleFunc("GET /api/log", s.failedLog)
+	s.mux.HandleFunc("POST /api/act", s.act)
 	return s
 }
 
@@ -142,6 +148,7 @@ func (s *Server) state(w http.ResponseWriter, _ *http.Request) {
 			"theme": c.Theme, "receipt": c.Receipt(), "runCode": s.Eng.RunCode(),
 		},
 		"rules": active,
+		"mine":  s.Eng.Mine(),
 		"demo":  s.Demo,
 		"home":  s.Home,
 	})
@@ -448,4 +455,64 @@ func (s *Server) open(w http.ResponseWriter, r *http.Request) {
 		s.OpenURL(in.URL)
 	}
 	writeJSON(w, map[string]bool{"native": s.OpenURL != nil})
+}
+
+func (s *Server) mine(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, map[string]any{"mine": s.Eng.Mine(), "error": s.Eng.List().MineErr})
+}
+
+func (s *Server) minePR(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.Eng.MineOne(r.URL.Query().Get("key"))
+	if !ok {
+		fail(w, 404, fmt.Errorf("no such pull request of yours"))
+		return
+	}
+	writeJSON(w, m)
+}
+
+func (s *Server) conversation(w http.ResponseWriter, r *http.Request) {
+	conv, err := s.Eng.Conversation(r.Context(), r.URL.Query().Get("key"))
+	if err != nil {
+		fail(w, 502, err)
+		return
+	}
+	writeJSON(w, conv)
+}
+
+func (s *Server) failedLog(w http.ResponseWriter, r *http.Request) {
+	job, err := strconv.ParseInt(r.URL.Query().Get("job"), 10, 64)
+	if err != nil {
+		fail(w, 400, fmt.Errorf("bad job id"))
+		return
+	}
+	text, err := s.Eng.FailedLog(r.Context(), r.URL.Query().Get("key"), job)
+	if err != nil {
+		fail(w, 502, err)
+		return
+	}
+	writeJSON(w, map[string]string{"log": text})
+}
+
+func (s *Server) act(w http.ResponseWriter, r *http.Request) {
+	in, ok := read[struct {
+		Key     string `json:"key"`
+		Confirm bool   `json:"confirm"`
+		review.Action
+	}](w, r)
+	if !ok {
+		return
+	}
+	// Merging is the one action that cannot be taken back, so the page must
+	// say the user confirmed it.
+	if in.Kind == "merge" && !in.Confirm {
+		fail(w, 400, fmt.Errorf("a merge needs confirm: true"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
+	defer cancel()
+	if err := s.Eng.Act(ctx, in.Key, in.Action); err != nil {
+		fail(w, 400, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
 }

@@ -85,3 +85,11 @@ export function prose(text) {
   }
   return out;
 }
+
+// openExternal opens a link in the user's browser: through the desktop app
+// when there is one, else in a new tab.
+export function openExternal(e) {
+  const url = e.currentTarget.href;
+  post("/api/open", { url }).then((r) => { if (!r.native) window.open(url, "_blank", "noreferrer"); }).catch(() => {});
+  e.preventDefault();
+}
