@@ -226,7 +226,8 @@ table.reg th { text-align: left; font: 12px/1.2 var(--lettering-wide); letter-sp
 table.reg td { padding: calc(var(--u) * 1.5); border-bottom: 1px solid var(--hair); vertical-align: top; }
 table.reg tr:last-child td { border-bottom: 0; }
 table.reg tr.go { cursor: pointer; }
-table.reg tr.go:hover td { background: var(--sunk); }
+table.reg tr.go:hover td, table.reg tr.go:focus-visible td { background: var(--sunk); }
+table.reg tr.go:focus-visible { outline-offset: -2px; }
 table.reg td.r, table.reg th.r { text-align: right; }
 table.reg.queue { table-layout: fixed; min-width: 760px; }
 table.reg.queue th:nth-child(2) { width: 130px; }
