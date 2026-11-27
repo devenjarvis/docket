@@ -1,0 +1,23 @@
+{"data":{"repository":{
+  "mergeCommitAllowed":false,"squashMergeAllowed":true,"rebaseMergeAllowed":true,"autoMergeAllowed":true,
+  "pullRequest":{
+    "id":"PR_1","number":88,"isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED",
+    "reviewDecision":"CHANGES_REQUESTED","maintainerCanModify":true,
+    "autoMergeRequest":{"mergeMethod":"SQUASH"},
+    "headRepository":{"nameWithOwner":"someone/api"},
+    "reviewRequests":{"nodes":[{"requestedReviewer":{"login":"maya"}},{"requestedReviewer":{"slug":"platform"}}]},
+    "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
+      {"__typename":"CheckRun","id":"CR_1","name":"test","status":"COMPLETED","conclusion":"FAILURE",
+       "detailsUrl":"https://github.com/acme/api/actions/runs/500/job/9001","startedAt":"2026-11-20T10:00:00Z","completedAt":"2026-11-20T10:03:00Z",
+       "databaseId":9001,"isRequired":true,"checkSuite":{"workflowRun":{"databaseId":500,"workflow":{"name":"CI"}}}},
+      {"__typename":"StatusContext","id":"SC_1","context":"deploy/preview","state":"PENDING","targetUrl":"https://preview.example/88",
+       "createdAt":"2026-11-20T10:01:00Z","isRequired":false}
+    ]}}}}]},
+    "reviews":{"nodes":[{"id":"R_1","author":{"login":"maya"},"state":"CHANGES_REQUESTED","body":"A few things.","url":"https://github.com/acme/api/pull/88#pullrequestreview-1","submittedAt":"2026-11-20T11:00:00Z"}]},
+    "reviewThreads":{"nodes":[{"id":"T_1","path":"retry.go","line":41,"isResolved":false,"isOutdated":false,
+      "comments":{"nodes":[
+        {"id":"C_1","author":{"login":"maya"},"body":"Rename this to match `deliver`.","url":"https://github.com/acme/api/pull/88#discussion_r1","createdAt":"2026-11-20T11:00:00Z","diffHunk":"@@ -40,3 +40,4 @@\n+func send() {"},
+        {"id":"C_2","author":null,"body":"ghost reply","url":"","createdAt":"2026-11-20T11:05:00Z","diffHunk":""}
+      ]}}]},
+    "comments":{"nodes":[{"id":"IC_1","author":{"login":"bot"},"body":"Preview ready.","url":"https://github.com/acme/api/pull/88#issuecomment-1","createdAt":"2026-11-20T10:30:00Z"}]}
+  }}}}

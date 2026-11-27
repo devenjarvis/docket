@@ -131,23 +131,13 @@ func (c CLI) Assigned(ctx context.Context) ([]model.PR, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, it := range items {
-			// repository_url ends in /repos/<owner>/<repo>.
-			parts := strings.Split(strings.TrimSuffix(it.RepositoryURL, "/"), "/")
-			if len(parts) < 2 {
-				continue
-			}
-			owner, repo := parts[len(parts)-2], parts[len(parts)-1]
-			k := model.Key(owner, repo, it.Number)
+		for _, found := range searchPRs(items, qq.why) {
+			k := found.Key()
 			if p, ok := byKey[k]; ok {
 				p.Why = append(p.Why, qq.why)
 				continue
 			}
-			byKey[k] = &model.PR{
-				Owner: owner, Repo: repo, Number: it.Number, Title: it.Title,
-				Author: it.User.Login, URL: it.HTMLURL, Draft: it.Draft,
-				UpdatedAt: it.UpdatedAt, Why: []string{qq.why},
-			}
+			byKey[k] = &found
 			order = append(order, k)
 		}
 	}
