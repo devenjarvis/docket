@@ -25,9 +25,12 @@ import (
 
 // Engine owns every review.
 type Engine struct {
-	Home  string
-	GH    gh.Client
-	Prep  repo.Preparer
+	Home string
+	GH   gh.Client
+	Prep repo.Preparer
+	// Inbox, when set, watches the user's own pull requests and acts on any
+	// pull request's conversation. Set it before Start.
+	Inbox gh.Inbox
 	Rules *rules.Store
 	Hub   *Hub
 	// Agent returns the command that starts the user's ACP agent and its
@@ -50,6 +53,10 @@ type Engine struct {
 	viewer   string
 	syncErr  string
 	lastSync time.Time
+	// mine is the user's own open pull requests; nil until first loaded.
+	mine     map[string]*model.Mine
+	mineSeen bool
+	mineErr  string
 }
 
 // New loads saved reviews from home.
@@ -174,16 +181,22 @@ func (e *Engine) enqueueLocked(key string) {
 // for each new one and each one whose author has pushed since it was read.
 func (e *Engine) Sync(ctx context.Context) error {
 	err := e.sync(ctx)
+	var mineErr error
+	if err == nil {
+		mineErr = e.syncMine(ctx)
+	}
 	e.mu.Lock()
 	e.lastSync = time.Now()
+	e.syncErr, e.mineErr = "", ""
 	if err != nil {
 		e.syncErr = err.Error()
-	} else {
-		e.syncErr = ""
+	}
+	if mineErr != nil {
+		e.mineErr = mineErr.Error()
 	}
 	e.mu.Unlock()
 	e.Hub.Send(Event{Type: "queue"})
-	return err
+	return errors.Join(err, mineErr)
 }
 
 func (e *Engine) sync(ctx context.Context) error {
@@ -366,6 +379,7 @@ type Summary struct {
 type Status struct {
 	Viewer   string    `json:"viewer"`
 	SyncErr  string    `json:"syncError,omitempty"`
+	MineErr  string    `json:"mineError,omitempty"`
 	LastSync time.Time `json:"lastSync"`
 	Reviews  []Summary `json:"reviews"`
 }
@@ -422,7 +436,7 @@ func summarize(r *model.Review) Summary {
 func (e *Engine) List() Status {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	st := Status{Viewer: e.viewer, SyncErr: e.syncErr, LastSync: e.lastSync}
+	st := Status{Viewer: e.viewer, SyncErr: e.syncErr, MineErr: e.mineErr, LastSync: e.lastSync}
 	for _, r := range e.reviews {
 		st.Reviews = append(st.Reviews, summarize(r))
 	}

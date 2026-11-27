@@ -69,6 +69,9 @@ func Start(ctx context.Context, opts Options) (*App, error) {
 		demo.Seed(home, rs)
 	}
 	eng := review.New(home, ghc, prep, rs)
+	if in, ok := ghc.(gh.Inbox); ok {
+		eng.Inbox = in
+	}
 	eng.Logf = logf
 	srv := server.New(eng, rs, home)
 	if opts.Demo {

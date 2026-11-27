@@ -138,6 +138,7 @@ func (e *Engine) read(parent context.Context, key string) {
 			"note":                "knowsThisRepository counts reviews done through this tool only; an area that is missing has not been reviewed here.",
 		},
 	}
+	inputs["conversation.json"] = e.conversationFor(ctx, pr)
 	if previous != nil {
 		inputs["previous.json"] = map[string]any{"brief": previous.Brief, "answers": previous.Answers}
 	}
@@ -251,6 +252,21 @@ func (e *Engine) read(parent context.Context, key string) {
 		old.HeadSHA = previous.ReadSHA
 		e.Prep.Release(context.Background(), old, repo.Layout(e.Home, old))
 	}
+}
+
+// conversationFor reads what others have said on a pull request for the
+// agent. A failure to read it is not worth failing the read over: the agent
+// gets an empty conversation and the reason goes to the log.
+func (e *Engine) conversationFor(ctx context.Context, pr model.PR) model.Conversation {
+	if e.Inbox == nil {
+		return model.Conversation{}
+	}
+	_, _, conv, err := e.Inbox.Detail(ctx, pr.Owner, pr.Repo, pr.Number)
+	if err != nil {
+		e.Logf("could not read the conversation on %s: %v", pr.Key(), err)
+		return model.Conversation{}
+	}
+	return conv
 }
 
 func plural(n int) string {
