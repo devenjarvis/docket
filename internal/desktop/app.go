@@ -116,7 +116,11 @@ func Run(ctx context.Context, opts Options) error {
 				return
 			}
 		}
-		if err := notes.sendAction("ready-"+key, title, body, notifyLabel, reviewPath(key)); err != nil {
+		id, path := "ready-"+key, reviewPath(key)
+		if _, mine := a.Engine.MineOne(key); mine {
+			id, path = "mine-"+key, minePath(key)
+		}
+		if err := notes.sendAction(id, title, body, notifyLabel, path); err != nil {
 			logf("notification: %v", err)
 		}
 	}
@@ -157,6 +161,17 @@ func reviewPath(key string) string {
 		return "/"
 	}
 	return fmt.Sprintf("/#/r/%s/%s/%s/brief", url.PathEscape(owner), url.PathEscape(name), n)
+}
+
+// minePath is the in-app address of one of the user's own pull requests:
+// /#/m/<owner>/<repo>/<n>.
+func minePath(key string) string {
+	repo, n, ok := strings.Cut(key, "#")
+	owner, name, ok2 := strings.Cut(repo, "/")
+	if !ok || !ok2 {
+		return "/#/mine"
+	}
+	return fmt.Sprintf("/#/m/%s/%s/%s", url.PathEscape(owner), url.PathEscape(name), n)
 }
 
 // lateHandler lets application.New take the asset handler before the server
