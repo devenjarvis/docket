@@ -66,6 +66,7 @@ Everything is under `~/.docket` (`DOCKET_HOME` to move it):
 | `repos/` | Blobless bare clones |
 | `map.json` | Which parts of which repositories you have reviewed, and when |
 | `config.json` | Agent, poll interval, run-code, receipt and agent-on-your-pull-requests settings |
+| `docket.log` | What Docket did and what failed, with times; the previous one is `docket.log.1` |
 
 ## Layout
 

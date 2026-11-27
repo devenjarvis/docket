@@ -202,12 +202,20 @@ func (e *Engine) Sync(ctx context.Context) error {
 	}
 	e.mu.Lock()
 	e.lastSync = time.Now()
+	prevSync, prevMine := e.syncErr, e.mineErr
 	e.syncErr, e.mineErr = "", ""
 	if err != nil {
 		e.syncErr = err.Error()
 	}
 	if mineErr != nil {
 		e.mineErr = mineErr.Error()
+	}
+	// Log a failure when it starts or changes, not on every poll.
+	if e.syncErr != "" && e.syncErr != prevSync {
+		e.Logf("could not ask GitHub for pull requests to review: %s", e.syncErr)
+	}
+	if e.mineErr != "" && e.mineErr != prevMine {
+		e.Logf("could not load your own pull requests: %s", e.mineErr)
 	}
 	e.mu.Unlock()
 	e.Hub.Send(Event{Type: "queue"})
