@@ -20,6 +20,11 @@ function sheetsOf(v) {
   out.push({ sheet: "signoff", label: "Sign-off" });
   return out;
 }
+// isNew says whether a decision first appeared in this read, after the
+// reviewer's last look.
+const isNew = (v, id) => !!(v.brief && v.brief.since && (v.brief.since.new || []).includes(id));
+const newStamp = (v, id) => isNew(v, id) && h("span.stamp.open", { class: "count" }, "New");
+
 const at = (S, list) => Math.max(0, list.findIndex((s) => s.sheet === S.route.sheet && (s.sheet !== "d" || s.id === S.route.id)));
 
 // The id that active time is counted against for the sheet on screen.
@@ -121,7 +126,7 @@ export function renderReview(S) {
   const compact = (b && b.decisions || []).length > 2;
   const tab = (s) => h("a", { href: href(v.key, s.sheet, s.id), "aria-current": s === list[i] ? "page" : null, title: s.decision ? `Decision ${s.n}: ${s.decision.title}` : null,
     "aria-label": s.decision && compact ? `Decision ${s.n}: ${s.decision.title}` : null, class: s.decision && compact ? "tab-tri" : null },
-  s.decision ? [tri(s.n, !!(v.answers[s.id] && v.answers[s.id].option)), !compact && h("span", { class: "tab-title" }, s.decision.title)] : s.label);
+  s.decision ? [tri(s.n, !!(v.answers[s.id] && v.answers[s.id].option)), !compact && h("span", { class: "tab-title" }, s.decision.title), newStamp(v, s.id)] : s.label);
   const tabs = b && h("nav.sheets", { "aria-label": "Sheets" },
     list.filter((s) => s.sheet !== "signoff").map(tab),
     h("span.spacer"),
@@ -378,7 +383,7 @@ function decision(v, sheet) {
   return h("div.cols",
     h("div.main",
       h("div.row", { class: "one-line" }, tri(sheet.n, !!a.option, true),
-        h("div.block", h("h1.statement", prose(d.title)), h("p.lede", prose(d.detail)))),
+        h("div.block", newStamp(v, d.id) && h("div", h("span.stamp.open", "New since your last look")), h("h1.statement", prose(d.title)), h("p.lede", prose(d.detail)))),
       beforeAfter(d.beforeAfter, (f) => outURL(v, f)),
       (v.hotDiffs[d.id] || []).length ? h("div.block", h("div.label.ink", "The lines that matter"), (v.hotDiffs[d.id] || []).map(diffBlock),
         h("div.small.muted", "A red rule in the margin marks them. ", h("a", { href: href(v.key, "diff") + "/" + d.section }, "See the whole section"))) : null,
@@ -433,7 +438,7 @@ function signoff(S, v) {
           const a = v.answers[dec.id] || {}, o = dec.options.find((x) => x.id === a.option);
           return h("tr.go", { onclick: () => go(href(v.key, "d", dec.id)) },
             h("td", { class: "fit" }, tri(i + 1, !!o)),
-            h("td", h("div", { class: "strong" }, prose(dec.title)), h("div.small.muted", o ? `${o.label}. ${o.detail}` : "Not answered")),
+            h("td", h("div", { class: "strong" }, prose(dec.title), newStamp(v, dec.id)), h("div.small.muted", o ? `${o.label}. ${o.detail}` : "Not answered")),
             h("td.r", { class: "fit" }, !o ? h("span.stamp.open", "Open") : o.effect === "blocking" ? h("span.stamp.contra", "Blocking") : o.effect === "ask" ? h("span.stamp.open", "Asked") : h("span.stamp", "Accepted")),
             h("td.r.num.muted", { class: "fit" }, clock(v.seconds[dec.id] || 0)));
         })))) : h("p.muted", "The agent found nothing that needs a person's judgment.")),

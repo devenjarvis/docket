@@ -55,6 +55,7 @@ export function renderMineList(S) {
       h("div", h("div.label", "Ready to merge"), h("div.big", ready), h("div.small.muted", ""))),
     groups.some(Boolean) ? groups : h("div.block", h("h2.h2", "You have no open pull requests"),
       h("p.lede", "Pull requests you open appear here on their own, with what stands between each one and merging.")),
+    mine.length > 0 && h("span.small.muted", h("span.kbd", "j"), " ", h("span.kbd", "k"), " move between rows, ", h("span.kbd", "Enter"), " opens one."),
   ];
 }
 

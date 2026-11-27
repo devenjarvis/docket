@@ -168,7 +168,8 @@ function queue() {
       h("h2.h2", "Nothing is waiting on you"),
       h("p.lede", "Pull requests where your review is requested or that are assigned to you appear here on their own, and your agent starts reading each one as it arrives.")),
     h("div.row", { class: "spread mid" },
-      h("span.small.muted", `Checks GitHub every ${Math.round(S.st.config.pollSeconds / 60) || 1} min for review requests and assignments.`),
+      h("span.small.muted", `Checks GitHub every ${Math.round(S.st.config.pollSeconds / 60) || 1} min for review requests and assignments. `,
+        h("span.kbd", "j"), " ", h("span.kbd", "k"), " move between rows, ", h("span.kbd", "Enter"), " opens one."),
       h("button.btn.quiet.small", { onclick: async () => { try { await post("/api/sync"); } catch (e) { toast(e.message); } refresh(true); } }, "Check now"))));
 }
 
@@ -276,6 +277,17 @@ addEventListener("keydown", (e) => {
   const t = e.target;
   if (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.tagName === "SELECT") return;
   if (S.route.name === "review") reviewKeys(S, e);
+  else if ((S.route.name === "queue" || S.route.name === "mine") && (e.key === "j" || e.key === "k")) moveRow(e.key === "j" ? 1 : -1);
 });
+
+// moveRow moves focus through the inbox's rows; Enter on a row opens it.
+function moveRow(by) {
+  const rows = [...document.querySelectorAll("tr.go[tabindex]")];
+  if (!rows.length) return;
+  const i = rows.indexOf(document.activeElement);
+  const next = rows[i < 0 ? (by > 0 ? 0 : rows.length - 1) : Math.min(rows.length - 1, Math.max(0, i + by))];
+  next.focus();
+  next.scrollIntoView({ block: "nearest" });
+}
 connect();
 load();
