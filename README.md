@@ -62,7 +62,7 @@ Everything is under `~/.docket` (`DOCKET_HOME` to move it):
 | `state/` | One JSON file per review: the brief, your answers, your time |
 | `state/mine/` | One JSON file per pull request of yours: merge state, checks, conversation, and the agent's last run |
 | `tend/<owner>/<repo>/<n>/<sha>/` | The agent's checkouts of your branches |
-| `reviews/<owner>/<repo>/<n>/<sha>/` | The checkouts, the diff, the agent's probes (`out/`) |
+| `reviews/<owner>/<repo>/<n>/<sha>/` | The checkouts, the diff, the agent's probes (`out/`). Removed once the pull request leaves your queue, or once a newer head has been read |
 | `repos/` | Blobless bare clones |
 | `map.json` | Which parts of which repositories you have reviewed, and when |
 | `config.json` | Agent, poll interval, run-code, receipt and agent-on-your-pull-requests settings |
