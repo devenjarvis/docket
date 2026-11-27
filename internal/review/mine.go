@@ -90,7 +90,7 @@ func (e *Engine) refreshMine(ctx context.Context, found model.PR, notify bool) e
 	e.loadMineLocked()
 	var prev *model.Mine
 	if cur := e.mine[key]; cur != nil {
-		cp := *cur
+		cp := clone(cur)
 		prev = &cp
 	}
 	e.mu.Unlock()
@@ -115,12 +115,20 @@ func (e *Engine) refreshMine(ctx context.Context, found model.PR, notify bool) e
 	next := &model.Mine{PR: pr, State: st, Checks: checks, Conversation: conv, Blockers: bs, Lane: model.LaneOf(bs), FetchedAt: time.Now()}
 
 	e.mu.Lock()
+	// The run and what was seen come from the latest state, not prev: a
+	// run may have changed them while the detail was being read.
+	tendNow := e.maybeTendLocked(viewer, e.mine[key], next)
 	e.mine[key] = next
 	if err := config.WriteJSON(e.minePath(pr), next); err != nil {
 		e.Logf("could not save %s: %v", key, err)
 	}
 	e.mu.Unlock()
 	e.Hub.Send(Event{Type: "mine", Key: key})
+	if tendNow {
+		if err := e.startTend(key, nil, true); err != nil {
+			e.Logf("%s: could not start the agent: %v", key, err)
+		}
+	}
 
 	if notify && e.Notify != nil {
 		if body := news(viewer, prev, next); body != "" {
@@ -216,7 +224,7 @@ func (e *Engine) Mine() []model.Mine {
 	e.loadMineLocked()
 	out := make([]model.Mine, 0, len(e.mine))
 	for _, m := range e.mine {
-		out = append(out, *m)
+		out = append(out, clone(m))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
@@ -237,7 +245,20 @@ func (e *Engine) MineOne(key string) (model.Mine, bool) {
 	if !ok {
 		return model.Mine{}, false
 	}
-	return *m, true
+	return clone(m), true
+}
+
+// clone copies an own pull request deeply enough that a run changing it
+// later does not change the copy. The caller holds e.mu.
+func clone(m *model.Mine) model.Mine {
+	cp := *m
+	if m.Tend != nil {
+		t := *m.Tend
+		t.Actions = append([]model.TendAction(nil), m.Tend.Actions...)
+		t.Notes = append([]string(nil), m.Tend.Notes...)
+		cp.Tend = &t
+	}
+	return cp
 }
 
 // Action is something the user does to a pull request from Docket.
@@ -262,7 +283,7 @@ func (e *Engine) prFor(key string) (model.PR, *model.Mine, bool) {
 	defer e.mu.Unlock()
 	e.loadMineLocked()
 	if m := e.mine[key]; m != nil {
-		cp := *m
+		cp := clone(m)
 		return m.PR, &cp, true
 	}
 	if r := e.reviews[key]; r != nil {
@@ -290,7 +311,7 @@ func (e *Engine) Act(ctx context.Context, key string, a Action) error {
 		if body == "" || a.Thread == "" {
 			return errors.New("write a reply first")
 		}
-		err = e.Inbox.Reply(ctx, pr, a.Thread, body)
+		_, err = e.Inbox.Reply(ctx, pr, a.Thread, body)
 	case "resolve", "unresolve":
 		if a.Thread == "" {
 			return errors.New("no thread named")

@@ -96,4 +96,18 @@ type Tend struct {
 	// Agent and Model name who did it.
 	Agent string `json:"agent,omitempty"`
 	Model string `json:"model,omitempty"`
+	// Branch is the checkout the agent committed in, kept so a waiting fix
+	// can still be pushed and a pushed one reverted.
+	Branch TendBranch `json:"branch"`
+}
+
+// TendBranch is where a tend run's checkout lives (repo.Branch, which this
+// package cannot import).
+type TendBranch struct {
+	Dir     string `json:"dir"`
+	Work    string `json:"work"`
+	Scratch string `json:"scratch"`
+	Out     string `json:"out"`
+	Start   string `json:"start"`
+	Remote  string `json:"remote"`
 }

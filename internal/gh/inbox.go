@@ -22,7 +22,10 @@ type Inbox interface {
 	// Detail returns whether a pull request can merge, its checks, and what
 	// people have said on it.
 	Detail(ctx context.Context, owner, repo string, number int) (model.MergeState, []model.Check, model.Conversation, error)
-	Reply(ctx context.Context, pr model.PR, threadID, body string) error
+	// Reply answers in a review thread and returns the new comment's id.
+	Reply(ctx context.Context, pr model.PR, threadID, body string) (string, error)
+	// DeleteComment deletes a review comment the viewer wrote.
+	DeleteComment(ctx context.Context, pr model.PR, commentID string) error
 	Resolve(ctx context.Context, pr model.PR, threadID string, resolved bool) error
 	Comment(ctx context.Context, pr model.PR, body string) error
 	// Merge merges at sha, so a push that lands meanwhile is not merged
@@ -76,9 +79,22 @@ func (c CLI) Detail(ctx context.Context, owner, repo string, number int) (model.
 	return parseDetail(raw)
 }
 
-func (c CLI) Reply(ctx context.Context, _ model.PR, threadID, body string) error {
-	return c.graphql(ctx, `mutation($t:ID!,$b:String!){ addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t, body:$b}){ comment{ id } } }`,
-		map[string]any{"t": threadID, "b": body}, nil)
+func (c CLI) Reply(ctx context.Context, _ model.PR, threadID, body string) (string, error) {
+	var out struct {
+		Add struct {
+			Comment struct {
+				ID string `json:"id"`
+			} `json:"comment"`
+		} `json:"addPullRequestReviewThreadReply"`
+	}
+	err := c.graphql(ctx, `mutation($t:ID!,$b:String!){ addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t, body:$b}){ comment{ id } } }`,
+		map[string]any{"t": threadID, "b": body}, &out)
+	return out.Add.Comment.ID, err
+}
+
+func (c CLI) DeleteComment(ctx context.Context, _ model.PR, commentID string) error {
+	return c.graphql(ctx, `mutation($c:ID!){ deletePullRequestReviewComment(input:{id:$c}){ clientMutationId } }`,
+		map[string]any{"c": commentID}, nil)
 }
 
 func (c CLI) Resolve(ctx context.Context, _ model.PR, threadID string, resolved bool) error {

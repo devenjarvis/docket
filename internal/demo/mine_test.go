@@ -33,7 +33,7 @@ func TestDemoInboxActionsChangeWhatComesBack(t *testing.T) {
 	blocked, _ := g.PR(ctx, "acme", "ledger", 318)
 	_, _, conv, _ := g.Detail(ctx, "acme", "ledger", 318)
 	tid := conv.Threads[0].ID
-	if err := g.Reply(ctx, blocked, tid, "Done."); err != nil {
+	if _, err := g.Reply(ctx, blocked, tid, "Done."); err != nil {
 		t.Fatal(err)
 	}
 	_, _, conv, _ = g.Detail(ctx, "acme", "ledger", 318)

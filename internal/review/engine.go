@@ -31,8 +31,14 @@ type Engine struct {
 	// Inbox, when set, watches the user's own pull requests and acts on any
 	// pull request's conversation. Set it before Start.
 	Inbox gh.Inbox
-	Rules *rules.Store
-	Hub   *Hub
+	// Branches, when set, gives the agent writable checkouts of the user's
+	// own branches, so it can fix their pull requests. Set it before Start.
+	Branches repo.Brancher
+	// TendMode returns auto, ask or off: whether the agent acts on the
+	// user's pull requests on its own when that is safe.
+	TendMode func() string
+	Rules    *rules.Store
+	Hub      *Hub
 	// Agent returns the command that starts the user's ACP agent and its
 	// display name; an empty command means none is set up.
 	Agent func() (command, name string)
@@ -57,6 +63,8 @@ type Engine struct {
 	mine     map[string]*model.Mine
 	mineSeen bool
 	mineErr  string
+	tending  map[string]bool
+	runCtx   context.Context
 }
 
 // New loads saved reviews from home.
@@ -65,7 +73,7 @@ func New(home string, ghc gh.Client, prep repo.Preparer, rs *rules.Store) *Engin
 		Home: home, GH: ghc, Prep: prep, Rules: rs, Hub: NewHub(),
 		reviews: map[string]*model.Review{}, diffs: map[string][]diff.File{},
 		queue: make(chan string, 256), queued: map[string]bool{},
-		cancels: map[string]context.CancelFunc{},
+		cancels: map[string]context.CancelFunc{}, tending: map[string]bool{},
 		RunCode: func() bool { return true },
 		Logf:    func(string, ...any) {},
 	}
@@ -121,6 +129,9 @@ func (e *Engine) save(r *model.Review) {
 
 // Start runs the poller and the reading workers until ctx ends.
 func (e *Engine) Start(ctx context.Context, workers int, poll time.Duration) {
+	e.mu.Lock()
+	e.runCtx = ctx
+	e.mu.Unlock()
 	for i := 0; i < workers; i++ {
 		e.wg.Add(1)
 		go func() {

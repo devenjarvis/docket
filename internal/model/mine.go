@@ -16,6 +16,14 @@ type Mine struct {
 	// Lane is needs-you, waiting or ready.
 	Lane      string    `json:"lane"`
 	FetchedAt time.Time `json:"fetchedAt"`
+	// Tend is the agent's latest run on it, if any.
+	Tend *Tend `json:"tend,omitempty"`
+	// Seen is the trigger signature Docket last acted on (or first saw), so
+	// a run starts only when something new needs doing.
+	Seen string `json:"seen,omitempty"`
+	// AutoRuns counts runs Docket started on its own since the user last
+	// acted on this pull request.
+	AutoRuns int `json:"autoRuns,omitempty"`
 }
 
 // MergeState is what GitHub says about whether a pull request can merge.

@@ -31,9 +31,10 @@ type ownPR struct {
 	st     model.MergeState
 	checks []model.Check
 	conv   model.Conversation
-	// rerunAt is when the failed jobs were re-run; they finish a few
-	// seconds later, failing again, because the bug is real.
+	// rerunAt is when the checks started again; they finish a few seconds
+	// later, failing until the nil map is fixed.
 	rerunAt time.Time
+	fixed   bool
 }
 
 // inbox is the demo's GitHub state. Actions change it, so the next Detail
@@ -175,8 +176,12 @@ func (g GitHub) Detail(_ context.Context, owner, repo string, n int) (model.Merg
 	if o := in.find(owner, repo, n); o != nil {
 		if !o.rerunAt.IsZero() && time.Since(o.rerunAt) > 4*time.Second {
 			for i := range o.checks {
-				if o.checks[i].RunID != 0 && o.checks[i].Pending() {
-					o.checks[i].Status, o.checks[i].Conclusion, o.checks[i].CompletedAt = "COMPLETED", "FAILURE", time.Now()
+				if !o.checks[i].Pending() {
+					continue
+				}
+				o.checks[i].Status, o.checks[i].Conclusion, o.checks[i].CompletedAt = "COMPLETED", "SUCCESS", time.Now()
+				if o.checks[i].RunID != 0 && !o.fixed {
+					o.checks[i].Conclusion = "FAILURE"
 				}
 			}
 			o.rerunAt = time.Time{}
@@ -210,19 +215,40 @@ func (o *ownPR) touch() {
 	}
 }
 
-func (g GitHub) Reply(_ context.Context, pr model.PR, threadID, body string) error {
+func (g GitHub) Reply(_ context.Context, pr model.PR, threadID, body string) (string, error) {
 	in := g.state()
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	c, o := in.conv(pr)
 	for i := range c.Threads {
 		if c.Threads[i].ID == threadID {
-			c.Threads[i].Comments = append(c.Threads[i].Comments, model.Comment{ID: in.id("C"), Author: viewer, Body: body, At: time.Now()})
+			id := in.id("C")
+			c.Threads[i].Comments = append(c.Threads[i].Comments, model.Comment{ID: id, Author: viewer, Body: body, At: time.Now()})
 			o.touch()
-			return nil
+			return id, nil
 		}
 	}
-	return errors.New("no such thread")
+	return "", errors.New("no such thread")
+}
+
+func (g GitHub) DeleteComment(_ context.Context, pr model.PR, commentID string) error {
+	in := g.state()
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	c, o := in.conv(pr)
+	for i := range c.Threads {
+		for j, cm := range c.Threads[i].Comments {
+			if cm.ID == commentID {
+				if cm.Author != viewer {
+					return errors.New("you can only delete your own comments")
+				}
+				c.Threads[i].Comments = append(c.Threads[i].Comments[:j], c.Threads[i].Comments[j+1:]...)
+				o.touch()
+				return nil
+			}
+		}
+	}
+	return errors.New("no such comment")
 }
 
 func (g GitHub) Resolve(_ context.Context, pr model.PR, threadID string, resolved bool) error {
