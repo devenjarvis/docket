@@ -40,6 +40,7 @@ type Engine struct {
 	// Logf receives one line per notable event.
 	Logf func(format string, args ...any)
 
+	wg       sync.WaitGroup
 	mu       sync.Mutex
 	reviews  map[string]*model.Review
 	diffs    map[string][]diff.File // key@sha → parsed diff
@@ -114,7 +115,9 @@ func (e *Engine) save(r *model.Review) {
 // Start runs the poller and the reading workers until ctx ends.
 func (e *Engine) Start(ctx context.Context, workers int, poll time.Duration) {
 	for i := 0; i < workers; i++ {
+		e.wg.Add(1)
 		go func() {
+			defer e.wg.Done()
 			for {
 				select {
 				case <-ctx.Done():
@@ -135,7 +138,9 @@ func (e *Engine) Start(ctx context.Context, workers int, poll time.Duration) {
 		}
 	}
 	e.mu.Unlock()
+	e.wg.Add(1)
 	go func() {
+		defer e.wg.Done()
 		_ = e.Sync(ctx)
 		t := time.NewTicker(poll)
 		defer t.Stop()
@@ -149,6 +154,10 @@ func (e *Engine) Start(ctx context.Context, workers int, poll time.Duration) {
 		}
 	}()
 }
+
+// Wait blocks until the goroutines Start began have returned, which they do
+// once Start's context ends.
+func (e *Engine) Wait() { e.wg.Wait() }
 
 func (e *Engine) enqueueLocked(key string) {
 	if e.queued[key] {

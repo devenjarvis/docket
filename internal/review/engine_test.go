@@ -42,7 +42,9 @@ func start(t *testing.T) (*review.Engine, string) {
 	self, _ := os.Executable()
 	eng.Agent = func() (string, string) { return fmt.Sprintf("DOCKET_TEST_AGENT=1 %q", self), "test agent" }
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	// Cleanups run last-registered first, so the engine stops writing into
+	// home before TempDir removes it.
+	t.Cleanup(func() { cancel(); eng.Wait() })
 	eng.Start(ctx, 2, time.Hour)
 	return eng, home
 }
