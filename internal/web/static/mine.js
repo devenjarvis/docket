@@ -153,9 +153,9 @@ export function renderMine(S) {
   const head = h("div.titleblock",
     h("a.brand", { href: "#/mine", title: "Back to your pull requests" }, "Docket"),
     cell("Pull request", `${p.owner}/${p.repo} #${p.number}`),
-    cell("Title", p.title, ".wide"),
-    cell("Branch", `${p.headRef} → ${p.baseRef}`),
-    cell("Head", (p.headSha || "").slice(0, 7)),
+    cell("Title", p.title, ".wide.narrow-hide"),
+    cell("Branch", `${p.headRef} → ${p.baseRef}`, ".narrow-hide"),
+    cell("Head", (p.headSha || "").slice(0, 7), ".narrow-hide"),
     cell("Checked", ago(m.fetchedAt)));
   const blockers = (m.blockers || []).length
     ? h("ul", { class: "list" }, m.blockers.map((b) => h("li.mb" + (b.onYou ? ".text-red" : ".text-2"), b.text)))

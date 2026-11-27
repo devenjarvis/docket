@@ -178,7 +178,11 @@ function settings() {
   const c = S.st.config;
   const save = async (patch) => { try { await post("/api/settings", patch); refresh(true); } catch (e) { toast(e.message); } };
   const theme = localStorage.getItem("docket-theme") || "auto";
-  const setTheme = (t) => { localStorage.setItem("docket-theme", t); location.reload(); };
+  const setTheme = (t) => {
+    localStorage.setItem("docket-theme", t);
+    document.documentElement.dataset.theme = t === "auto" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "blueprint" : "whiteprint") : t;
+    render();
+  };
   const cmd = h("input.field.mono", { value: c.agentCommand || "", placeholder: "a command that starts an ACP agent on stdio", "aria-label": "Custom agent command" });
   return h("div.sheet", h("div.body",
     h("h1.title", "Settings"),
