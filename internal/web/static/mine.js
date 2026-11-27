@@ -5,7 +5,7 @@
 import { h, get, toast, ago, openExternal } from "./dom.js";
 import { renderConversation, act } from "./conversation.js";
 import { refresh } from "./app.js";
-import { renderTend, tendStatus } from "./tend.js";
+import { renderTend, tendStatus, heldCards, startTend } from "./tend.js";
 
 export function mineHref(key) {
   const m = key.match(/^(.+)\/(.+)#(\d+)$/);
@@ -107,16 +107,14 @@ function checks(m) {
 }
 
 // controls is the author's own panel: only what GitHub would let them do now.
-function controls(m) {
+function controls(S, m) {
   const key = m.pr.owner + "/" + m.pr.repo + "#" + m.pr.number, st = m.state, p = m.pr;
   const methods = st.methods || [];
   const ready = (m.blockers || []).length === 0;
   const pick = h("select.field", { "aria-label": "Merge method", class: "w-auto" },
     methods.map((x) => h("option", { value: x, selected: x === "SQUASH" || null }, { MERGE: "Merge commit", SQUASH: "Squash and merge", REBASE: "Rebase and merge" }[x] || x)));
   const confirmRow = h("div.row.hidden", { class: "mid gap-u" });
-  const mergeBtn = h("button.btn.red", {
-    disabled: !ready || !methods.length,
-    title: ready ? "" : "Merging opens once nothing blocks it",
+  const mergeBtn = ready && methods.length > 0 && h("button.btn.red", {
     onclick: () => {
       confirmRow.replaceChildren(
         h("span", `Merge ${p.headRef} into ${p.baseRef} with ${pick.selectedOptions[0].textContent.toLowerCase()}?`),
@@ -125,24 +123,59 @@ function controls(m) {
       confirmRow.classList.remove("hidden");
     },
   }, "Merge");
-  const has = (k) => (m.blockers || []).some((b) => b.kind === k);
   const reviewers = [...new Set((m.conversation.reviews || []).map((r) => r.author).filter((a) => a !== p.author))];
   const who = h("input.field.mono", { value: reviewers.join(", "), placeholder: "logins, comma separated", "aria-label": "Reviewers to ask" });
   const doit = (action, msg) => async () => { if (await act(key, action)) { if (msg) toast(msg); refresh(true); } };
+  // Merge shows only when nothing blocks it; until then the move is Merge
+  // when ready, where the repository allows auto-merge.
+  const autoBtn = st.autoMergeAllowed && !ready && methods.length > 0 && (st.autoMerge
+    ? h("button.btn", { onclick: doit({ kind: "auto-merge", on: false }, "Auto-merge is off.") }, "Turn off auto-merge")
+    : h("button.btn", { onclick: () => doit({ kind: "auto-merge", on: true, method: pick.value }, "GitHub will merge it once nothing blocks it.")() }, "Merge when ready"));
   return h("div.yours",
     h("span.label", "Your move"),
-    h("div.row", { class: "mid gap-u" }, pick, mergeBtn,
-      st.autoMergeAllowed && !ready && (st.autoMerge
-        ? h("button.btn", { onclick: doit({ kind: "auto-merge", on: false }, "Auto-merge is off.") }, "Turn off auto-merge")
-        : h("button.btn", { onclick: () => doit({ kind: "auto-merge", on: true, method: pick.value }, "GitHub will merge it once nothing blocks it.")() }, "Merge when ready"))),
+    heldCards(S),
+    (mergeBtn || autoBtn) ? h("div.row", { class: "mid gap-u" }, !st.autoMerge && pick, mergeBtn, autoBtn)
+      : !ready && h("p.small.muted", "Merge opens once nothing blocks it. The blockers each have their move on the left."),
     st.autoMerge && h("p.small.muted", `Auto-merge is on (${st.autoMerge.toLowerCase()}): GitHub merges it once nothing blocks it.`),
     confirmRow,
-    h("div.row", { class: "gap-u mt" },
-      p.draft && h("button.btn", { onclick: doit({ kind: "ready" }, "Marked ready for review.") }, "Mark ready for review"),
-      has("behind") && h("button.btn", { onclick: doit({ kind: "update-branch" }, "Branch updated from base.") }, "Update branch from base"),
-      has("conflicts") && h("span.small.muted", "The conflicts have to be resolved in a checkout of the branch.")),
     h("div.row", { class: "one-line gap-u mt" }, who,
       h("button.btn", { onclick: () => doit({ kind: "request-review", logins: who.value.split(",").map((s) => s.trim()).filter(Boolean) }, "Review requested.")() }, "Ask for review")));
+}
+
+// blockerMoves gives a blocker the action that clears it, where there is one.
+function blockerMoves(S, m, key, b) {
+  const t = m.tend, mode = S.st.config.tend || "auto";
+  const held = t && (t.actions || []).some((a) => a.state === "waiting");
+  const canTend = mode !== "off" && !(t && t.status === "running") && !held;
+  const agent = canTend && h("button.btn.small", { onclick: (ev) => startTend(S, key, ev) }, "Let the agent fix it");
+  const doit = (action, msg, label) => h("button.btn.small", { onclick: async (ev) => {
+    ev.currentTarget.disabled = true;
+    if (await act(key, action)) { if (msg) toast(msg); refresh(true); } else ev.currentTarget.disabled = false;
+  } }, label);
+  const jump = (sels, label) => h("button.btn.small.quiet", { onclick: () => {
+    const el = [sels].flat().map((x) => document.querySelector(x)).find(Boolean);
+    if (el) { el.scrollIntoView({ block: "center" }); const f = el.querySelector("button, textarea, summary"); if (f) f.focus({ preventScroll: true }); }
+  } }, label);
+  switch (b.kind) {
+  case "draft": return doit({ kind: "ready" }, "Marked ready for review.", "Mark ready");
+  case "behind": return [doit({ kind: "update-branch" }, "Branch updated from base.", "Update branch"), agent];
+  case "conflicts": return agent;
+  case "checks-failing": {
+    const runs = [...new Set((m.checks || []).filter((c) => failed(c) && c.runId).map((c) => c.runId))];
+    return [runs.length > 0 && h("button.btn.small", { onclick: async (ev) => {
+      ev.currentTarget.disabled = true;
+      let ok = true;
+      for (const run of runs) ok = (await act(key, { kind: "rerun", run })) && ok;
+      if (ok) { toast("Re-running the failed jobs."); refresh(true); } else ev.currentTarget.disabled = false;
+    } }, "Re-run failed jobs"), agent];
+  }
+  case "changes-requested":
+  case "unresolved-threads": {
+    return [b.onYou && jump(["[data-on-you]", "div[id^=thread-]"], "Go to the thread"), b.onYou && agent];
+  }
+  case "review-required": return jump("[aria-label='Reviewers to ask']", "Ask for review");
+  default: return null;
+  }
 }
 
 export function renderMine(S) {
@@ -157,7 +190,9 @@ export function renderMine(S) {
     cell("Head", (p.headSha || "").slice(0, 7)),
     cell("Checked", ago(m.fetchedAt)));
   const blockers = (m.blockers || []).length
-    ? h("ul", { class: "list" }, m.blockers.map((b) => h("li.mb" + (b.onYou ? ".text-red" : ".text-2"), b.text)))
+    ? h("div.scroll-x", h("table.reg", h("tbody", m.blockers.map((b) => h("tr",
+      h("td", { class: b.onYou ? "text-red" : "text-2" }, b.text),
+      h("td.r", h("div.row", { class: "end gap-u" }, blockerMoves(S, m, key, b))))))))
     : h("p", "Nothing blocks it. It can merge now.");
   return h("div.sheet", head,
     h("nav.sheets", { "aria-label": "Pull request" },
@@ -171,5 +206,5 @@ export function renderMine(S) {
           h("div.block.rule-top", renderTend(S)),
           h("div.block.rule-top", h("h2.h2", "Checks"), checks(m)),
           h("div.block.rule-top", renderConversation(key, m.conversation, S.st.queue.viewer, p.author, () => refresh(true)))),
-        h("div.side.wide", controls(m)))));
+        h("div.side.wide", controls(S, m)))));
 }
