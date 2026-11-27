@@ -9,7 +9,6 @@ Docket never calls a model itself. It starts the agent you already use (Claude C
 ## Run it
 
 ```bash
-go mod tidy          # once: resolves the Wails 3 dependency
 make demo            # sample pull requests and a scripted agent, in a browser
 make serve           # your real pull requests, in a browser (http://127.0.0.1:4127)
 make app && ./docket # the desktop app (Wails 3)
@@ -63,10 +62,11 @@ Everything is under `~/.docket` (`DOCKET_HOME` to move it):
 | `state/` | One JSON file per review: the brief, your answers, your time |
 | `state/mine/` | One JSON file per pull request of yours: merge state, checks, conversation, and the agent's last run |
 | `tend/<owner>/<repo>/<n>/<sha>/` | The agent's checkouts of your branches |
-| `reviews/<owner>/<repo>/<n>/<sha>/` | The checkouts, the diff, the agent's probes (`out/`) |
+| `reviews/<owner>/<repo>/<n>/<sha>/` | The checkouts, the diff, the agent's probes (`out/`). Removed once the pull request leaves your queue, or once a newer head has been read |
 | `repos/` | Blobless bare clones |
 | `map.json` | Which parts of which repositories you have reviewed, and when |
 | `config.json` | Agent, poll interval, run-code, receipt and agent-on-your-pull-requests settings |
+| `docket.log` | What Docket did and what failed, with times; the previous one is `docket.log.1` |
 
 ## Layout
 

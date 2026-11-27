@@ -55,6 +55,7 @@ func (e *Engine) fail(key string, err error) {
 // read has an agent prepare one pull request.
 func (e *Engine) read(parent context.Context, key string) {
 	e.mu.Lock()
+	e.waitSweep(key)
 	r := e.reviews[key]
 	if r == nil || (r.Status != "queued") {
 		e.mu.Unlock()

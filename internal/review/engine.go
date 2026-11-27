@@ -56,6 +56,7 @@ type Engine struct {
 	queue    chan string
 	queued   map[string]bool
 	cancels  map[string]context.CancelFunc
+	sweeping map[string]bool // pull requests whose old checkouts a sweep is removing
 	viewer   string
 	syncErr  string
 	lastSync time.Time
@@ -72,7 +73,7 @@ func New(home string, ghc gh.Client, prep repo.Preparer, rs *rules.Store) *Engin
 	e := &Engine{
 		Home: home, GH: ghc, Prep: prep, Rules: rs, Hub: NewHub(),
 		reviews: map[string]*model.Review{}, diffs: map[string][]diff.File{},
-		queue: make(chan string, 256), queued: map[string]bool{},
+		queue: make(chan string, 256), queued: map[string]bool{}, sweeping: map[string]bool{},
 		cancels: map[string]context.CancelFunc{}, tending: map[string]bool{},
 		RunCode: func() bool { return true },
 		Logf:    func(string, ...any) {},
@@ -192,18 +193,29 @@ func (e *Engine) enqueueLocked(key string) {
 // for each new one and each one whose author has pushed since it was read.
 func (e *Engine) Sync(ctx context.Context) error {
 	err := e.sync(ctx)
+	if err == nil {
+		e.sweep(ctx)
+	}
 	var mineErr error
 	if err == nil {
 		mineErr = e.syncMine(ctx)
 	}
 	e.mu.Lock()
 	e.lastSync = time.Now()
+	prevSync, prevMine := e.syncErr, e.mineErr
 	e.syncErr, e.mineErr = "", ""
 	if err != nil {
 		e.syncErr = err.Error()
 	}
 	if mineErr != nil {
 		e.mineErr = mineErr.Error()
+	}
+	// Log a failure when it starts or changes, not on every poll.
+	if e.syncErr != "" && e.syncErr != prevSync {
+		e.Logf("could not ask GitHub for pull requests to review: %s", e.syncErr)
+	}
+	if e.mineErr != "" && e.mineErr != prevMine {
+		e.Logf("could not load your own pull requests: %s", e.mineErr)
 	}
 	e.mu.Unlock()
 	e.Hub.Send(Event{Type: "queue"})

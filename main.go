@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/devenjarvis/docket/internal/server"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"syscall"
 
 	"github.com/devenjarvis/docket/internal/app"
+	"github.com/devenjarvis/docket/internal/config"
 	"github.com/devenjarvis/docket/internal/demo"
 	"github.com/devenjarvis/docket/internal/desktop"
 	"github.com/devenjarvis/docket/internal/loginenv"
@@ -67,14 +69,18 @@ func run(args []string) error {
 			fmt.Fprintln(os.Stderr, "docket: this build has no desktop window (build with -tags desktop); serving in the browser instead")
 			return serve(ctx, "127.0.0.1:4127", *demoFlag)
 		}
-		return desktop.Run(ctx, desktop.Options{Demo: *demoFlag})
+		logw, closeLog := appLog(*demoFlag)
+		defer closeLog()
+		return desktop.Run(ctx, desktop.Options{Demo: *demoFlag, Log: logw})
 	default:
 		return fmt.Errorf("unknown command %q: try docket, docket serve or docket demo", cmd)
 	}
 }
 
 func serve(ctx context.Context, addr string, demoMode bool) error {
-	a, err := app.Start(ctx, app.Options{Demo: demoMode})
+	logw, closeLog := appLog(demoMode)
+	defer closeLog()
+	a, err := app.Start(ctx, app.Options{Demo: demoMode, Log: logw})
 	if err != nil {
 		return err
 	}
@@ -92,4 +98,13 @@ func serve(ctx context.Context, addr string, demoMode bool) error {
 		return err
 	}
 	return nil
+}
+
+// appLog is where Docket's log lines go: stderr and ~/.docket/docket.log, or
+// stderr alone for the demo, whose home is thrown away.
+func appLog(demoMode bool) (io.Writer, func()) {
+	if demoMode {
+		return os.Stderr, func() {}
+	}
+	return config.OpenLog()
 }
