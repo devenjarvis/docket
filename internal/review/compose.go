@@ -17,16 +17,39 @@ import (
 type Draft struct {
 	// Event is the verdict Docket suggests: REQUEST_CHANGES when anything is
 	// blocking, COMMENT when a question is open, APPROVE when neither.
-	Event    string         `json:"event"`
+	Event string `json:"event"`
+	// Body is the review summary: the reviewer's own words, empty to start.
+	// Comments that cannot sit on a line are folded in when it posts, and
+	// so is the receipt when the reviewer includes it.
 	Body     string         `json:"body"`
 	Comments []DraftComment `json:"comments"`
 	// Locks lists what stands between the reviewer and Approve. Empty means
 	// Approve is open.
-	Locks []string `json:"locks"`
+	Locks []Reason `json:"locks"`
 	// Warnings are things worth knowing that do not lock anything.
-	Warnings []string      `json:"warnings"`
+	Warnings []Reason      `json:"warnings"`
 	Receipt  []ReceiptLine `json:"receipt"`
-	Total    int           `json:"totalSeconds"`
+	// ReceiptMarkdown is the receipt as it would post, and IncludeReceipt
+	// whether the reviewer's setting puts it in by default.
+	ReceiptMarkdown string `json:"receiptMarkdown"`
+	IncludeReceipt  bool   `json:"includeReceipt"`
+	Total           int    `json:"totalSeconds"`
+}
+
+// Reason is one lock or warning, with where to act on it: a decision to
+// answer or a section to spot-check.
+type Reason struct {
+	Text     string `json:"text"`
+	Decision string `json:"decision,omitempty"`
+	Section  string `json:"section,omitempty"`
+}
+
+func reasonTexts(rs []Reason) []string {
+	out := make([]string, len(rs))
+	for i, r := range rs {
+		out[i] = r.Text
+	}
+	return out
 }
 
 type DraftComment struct {
@@ -62,13 +85,21 @@ func (e *Engine) Compose(key string, withReceipt bool) (*Draft, error) {
 	}
 	b := r.Brief
 	files := e.files(r)
-	d := &Draft{}
+	d := &Draft{IncludeReceipt: withReceipt}
 	blocking, open, unanswered := 0, 0, 0
+	// The first decision behind each lock, so the lock can lead to it.
+	var firstOpen, firstBlocking, firstAsk string
+	mark := func(at *string, id string) {
+		if *at == "" {
+			*at = id
+		}
+	}
 
 	for _, dec := range b.Decisions {
 		a, ok := r.Answers[dec.ID]
 		if !ok || a.Option == "" {
 			unanswered++
+			mark(&firstOpen, dec.ID)
 			continue
 		}
 		var opt *model.Option
@@ -79,6 +110,7 @@ func (e *Engine) Compose(key string, withReceipt bool) (*Draft, error) {
 		}
 		if opt == nil {
 			unanswered++
+			mark(&firstOpen, dec.ID)
 			continue
 		}
 		body := strings.TrimSpace(a.Comment)
@@ -89,9 +121,11 @@ func (e *Engine) Compose(key string, withReceipt bool) (*Draft, error) {
 		switch opt.Effect {
 		case model.Blocking:
 			blocking++
+			mark(&firstBlocking, dec.ID)
 			label = "Blocking"
 		case model.Ask:
 			open++
+			mark(&firstAsk, dec.ID)
 			label = "Question"
 		}
 		if body == "" {
@@ -134,31 +168,32 @@ func (e *Engine) Compose(key string, withReceipt bool) (*Draft, error) {
 	}
 
 	if unanswered > 0 {
-		d.Locks = append(d.Locks, fmt.Sprintf("%d decision%s not answered", unanswered, plural(unanswered)))
+		d.Locks = append(d.Locks, Reason{Text: fmt.Sprintf("%d decision%s not answered", unanswered, plural(unanswered)), Decision: firstOpen})
 	}
 	if blocking > 0 {
-		d.Locks = append(d.Locks, fmt.Sprintf("%d decision%s you marked blocking", blocking, plural(blocking)))
+		d.Locks = append(d.Locks, Reason{Text: fmt.Sprintf("%d decision%s you marked blocking", blocking, plural(blocking)), Decision: firstBlocking})
 	}
 	if open > 0 {
-		d.Locks = append(d.Locks, fmt.Sprintf("%d question%s waiting on the author", open, plural(open)))
+		d.Locks = append(d.Locks, Reason{Text: fmt.Sprintf("%d question%s waiting on the author", open, plural(open)), Decision: firstAsk})
 	}
-	mech, audited := 0, 0
+	mech, audited, firstMech := 0, 0, ""
 	for _, s := range b.Sections {
 		if s.Kind == model.Mechanical {
 			mech++
+			mark(&firstMech, s.ID)
 			if r.Audited[s.ID] {
 				audited++
 			}
 		}
 	}
 	if mech > 0 && audited == 0 {
-		d.Warnings = append(d.Warnings, fmt.Sprintf("%d mechanical section%s taken on the agent's proof alone: spot-check one hunk to keep the proof honest", mech, plural(mech)))
+		d.Warnings = append(d.Warnings, Reason{Text: fmt.Sprintf("%d mechanical section%s taken on the agent's proof alone: spot-check one hunk to keep the proof honest", mech, plural(mech)), Section: firstMech})
 	}
 	if r.PR.HeadSHA != r.ReadSHA {
-		d.Warnings = append(d.Warnings, "The author has pushed since this was read. The review would attach to the commit that was read.")
+		d.Warnings = append(d.Warnings, Reason{Text: "The author has pushed since this was read. The review would attach to the commit that was read."})
 	}
 	if len(b.Uncovered) > 0 {
-		d.Warnings = append(d.Warnings, "Nothing looked at: "+strings.Join(b.Uncovered, "; "))
+		d.Warnings = append(d.Warnings, Reason{Text: "Nothing looked at: " + strings.Join(b.Uncovered, "; ")})
 	}
 
 	switch {
@@ -197,21 +232,10 @@ func (e *Engine) Compose(key string, withReceipt bool) (*Draft, error) {
 	}
 	d.Total += r.Seconds["context"] + r.Seconds["brief"]
 
-	var body strings.Builder
-	var folded []DraftComment
-	for _, c := range d.Comments {
-		if !c.Inline {
-			folded = append(folded, c)
-		}
-	}
-	for _, c := range folded {
-		where := ""
-		if c.Path != "" {
-			where = fmt.Sprintf(" (`%s`)", c.Path)
-		}
-		fmt.Fprintf(&body, "**%s**%s%s: %s\n\n", c.Label, standardSuffix(c.Standard), where, c.Body)
-	}
-	if withReceipt && len(d.Receipt) > 0 {
+	// The summary starts empty: it is for the reviewer's own words. Comments
+	// that cannot sit on a line are folded in when the review posts.
+	if len(d.Receipt) > 0 {
+		var body strings.Builder
 		body.WriteString("<details><summary>How this was reviewed</summary>\n\n")
 		body.WriteString("| Part | Changed lines | Covered by | My time |\n|---|---:|---|---:|\n")
 		for _, l := range d.Receipt {
@@ -222,8 +246,8 @@ func (e *Engine) Compose(key string, withReceipt bool) (*Draft, error) {
 			agent += " (" + r.Model + ")"
 		}
 		fmt.Fprintf(&body, "\nPrepared with %s through [Docket](https://github.com/devenjarvis/docket). Claims checked: %s.\n</details>\n", agent, claimCounts(b))
+		d.ReceiptMarkdown = strings.TrimSpace(body.String())
 	}
-	d.Body = strings.TrimSpace(body.String())
 	return d, nil
 }
 
@@ -256,6 +280,9 @@ type PostInput struct {
 	Event    string         `json:"event"`
 	Body     string         `json:"body"`
 	Comments []DraftComment `json:"comments"`
+	// Receipt puts the attention receipt at the end of the review body,
+	// composed from the time and spot-checks as they stand at posting.
+	Receipt bool `json:"receipt"`
 }
 
 // Post submits the review to GitHub. Approve is refused while anything
@@ -272,7 +299,7 @@ func (e *Engine) Post(ctx context.Context, key string, in PostInput) (string, er
 	switch in.Event {
 	case "APPROVE":
 		if len(draft.Locks) > 0 {
-			return "", errors.New("Approve is locked: " + strings.Join(draft.Locks, ", "))
+			return "", errors.New("Approve is locked: " + strings.Join(reasonTexts(draft.Locks), ", "))
 		}
 	case "REQUEST_CHANGES", "COMMENT":
 	default:
@@ -294,6 +321,9 @@ func (e *Engine) Post(ctx context.Context, key string, in PostInput) (string, er
 	}
 	if rv.Event != "APPROVE" && rv.Body == "" && len(rv.Comments) == 0 {
 		return "", errors.New("there is nothing to post: add a comment or answer a decision")
+	}
+	if in.Receipt && draft.ReceiptMarkdown != "" {
+		rv.Body = strings.TrimSpace(rv.Body + "\n\n" + draft.ReceiptMarkdown)
 	}
 	url, err := e.GH.PostReview(ctx, r.PR, rv)
 	if err != nil {

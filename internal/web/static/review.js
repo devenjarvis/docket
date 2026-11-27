@@ -416,7 +416,11 @@ function signoff(S, v) {
   const d = S.draft, b = v.brief;
   if (!d) return h("p", "Loading");
   const comments = (d.comments || []).map((c) => ({ ...c }));
-  const bodyBox = h("textarea.field", { rows: Math.min(14, 3 + (d.body || "").split("\n").length), value: d.body || "", "aria-label": "Review summary" });
+  const bodyBox = h("textarea.field", { rows: 3, value: d.body || "", "aria-label": "Review summary",
+    placeholder: "Anything you want to say in your own words. Comments that cannot sit on a line are added on their own." });
+  // Whether the receipt goes in: the setting decides the default, and the
+  // reviewer can change it for this one review.
+  if (!S.receipt || S.receipt.key !== v.key) S.receipt = { key: v.key, on: !!d.includeReceipt };
   const decN = (id) => b.decisions.findIndex((x) => x.id === id) + 1;
 
   return h("div.cols",
@@ -446,12 +450,13 @@ function signoff(S, v) {
 
       h("div.block", h("div.label.ink", "Review summary"), bodyBox),
 
-      h("div.block", h("div.label.ink", `Attention receipt · ${clock(d.totalSeconds || 0)} of your time`),
+      h("div.block", h("div.row", { class: "spread mid" }, h("div.label.ink", `Attention receipt · ${clock(d.totalSeconds || 0)} of your time`),
+          h("label.check", h("input", { type: "checkbox", checked: S.receipt.on, onchange: (e) => { S.receipt.on = e.target.checked; } }), "Include it in the review")),
         h("div.scroll-x", h("table.reg",
           h("thead", h("tr", h("th", "Part"), h("th.r", "Lines"), h("th", "Covered by"), h("th.r", "Your time"))),
           h("tbody", (d.receipt || []).map((l) => h("tr", h("td", l.title), h("td.r.num", l.lines),
             h("td.small", l.covered), h("td.r.num", clock(l.seconds))))))),
-        h("p.small.muted", "Nobody downstream has to guess whether approved meant read."))),
+        h("p.small.muted", "Nobody downstream has to guess whether approved meant read. It posts folded, below your summary, with the time as it stands when you post."))),
 
     h("div.side", verdict(S, v, d, comments, bodyBox)));
 }
@@ -470,7 +475,7 @@ function verdict(S, v, d, comments, bodyBox) {
   const ask = (event) => {
     const inline = comments.filter((c) => c.inline && c.body.trim()).length;
     const sha = v.readSha ? v.readSha.slice(0, 7) : "the commit that was read";
-    const post = h("button.btn.red", { onclick: (ev) => send(S, v, event, bodyBox.value, comments, ev) }, "Post review");
+    const post = h("button.btn.red", { onclick: (ev) => send(S, v, event, bodyBox.value, comments, S.receipt.on, ev) }, "Post review");
     confirmRow.replaceChildren(
       h("div", "Post ", h("i", EVENT[event]), ` with ${inline ? plural(inline, "inline comment") : "no inline comments"} on `, h("span.mono", sha), "?"),
       h("div.row", { class: "mid gap-u" }, post,
@@ -485,16 +490,25 @@ function verdict(S, v, d, comments, bodyBox) {
     h("button.btn.red", { "aria-pressed": String(suggested === "REQUEST_CHANGES"), onclick: () => ask("REQUEST_CHANGES") }, "Request changes"),
     confirmRow,
     locked && h("div.block", { class: "gap-s" }, h("div.small", "Approve unlocks when none of these remain:"),
-      h("ul.small", { class: "list" }, d.locks.map((l) => h("li", l)))),
-    (d.warnings || []).map((w) => h("div.small.muted", prose(w))),
+      d.locks.map((l) => reasonLink(v, l, h("span.small", l.text)))),
+    (d.warnings || []).map((w) => reasonLink(v, w, h("span.small.muted", prose(w.text)))),
     h("div.small.muted", "When the author pushes, Docket reads again and brings you only what changed."));
 }
 
-async function send(S, v, event, body, comments, ev) {
+// reasonLink makes a lock or warning lead to where it is settled: the
+// decision behind it, or the section to spot-check.
+function reasonLink(v, r, text) {
+  const n = r.decision ? v.brief.decisions.findIndex((x) => x.id === r.decision) + 1 : 0;
+  if (n) return h("a.small", { href: href(v.key, "d", r.decision), class: "tri-link" }, tri(n, !!(v.answers[r.decision] || {}).option), text);
+  if (r.section) return h("div", text, " ", h("a.small", { href: href(v.key, "diff") + "/" + r.section }, "Spot-check one"));
+  return h("div", text);
+}
+
+async function send(S, v, event, body, comments, receipt, ev) {
   const btn = ev && ev.currentTarget;
   if (btn) btn.disabled = true;
   try {
-    await post("/api/post", { key: v.key, event, body, comments });
+    await post("/api/post", { key: v.key, event, body, comments, receipt });
     S.repost = null;
     toast("Posted to GitHub.");
     refresh(true);
