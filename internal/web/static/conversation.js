@@ -26,11 +26,11 @@ function link(url, text) {
 }
 
 function body(text) {
-  return text && text.trim() ? h("div", { style: { whiteSpace: "pre-wrap", marginTop: "6px" } }, prose(text)) : null;
+  return text && text.trim() ? h("div", { class: "prewrap mt" }, prose(text)) : null;
 }
 
 function comment(c, viewer) {
-  return h("div", { style: { padding: "8px 0" } },
+  return h("div", { class: "py" },
     h("div.small.muted", h("b", who(c.author, viewer)), " · ", ago(c.at), " ", link(c.url, "on GitHub")),
     body(c.body));
 }
@@ -46,7 +46,7 @@ function replyBox(label, placeholder, send) {
       btn.disabled = false;
     },
   }, label);
-  return h("div", { style: { display: "grid", gap: "8px", marginTop: "8px" } }, ta, h("div", btn));
+  return h("div", { class: "stack mt" }, ta, h("div", btn));
 }
 
 function thread(key, t, viewer, author, onChange) {
@@ -67,8 +67,8 @@ function thread(key, t, viewer, author, onChange) {
       return ok;
     }),
   ];
-  const head = h("div.row", { style: { alignItems: "center", justifyContent: "space-between", gap: "8px" } },
-    h("span.row", { style: { gap: "8px", alignItems: "center" } },
+  const head = h("div.row", { class: "spread mid gap-u" },
+    h("span.row", { class: "mid gap-u" },
       h("code", `${t.path}${t.line ? ":" + t.line : ""}`),
       t.resolved ? h("span.stamp.faint", "Resolved") : onYou ? h("span.stamp.red", "Waiting on you") : h("span.stamp.open", "Open"),
       t.outdated && h("span.stamp.faint", "Outdated")),
@@ -77,7 +77,7 @@ function thread(key, t, viewer, author, onChange) {
   if (t.resolved) {
     return h("details.block", h("summary", head), inner);
   }
-  return h("div.block", { style: { borderLeft: onYou ? "var(--heavy) solid var(--red)" : "1px solid var(--hair)", paddingLeft: "16px" } }, head, inner);
+  return h("div.block.entry" + (onYou ? ".on-you" : ""), head, inner);
 }
 
 // renderConversation draws conv for the pull request key, written by
@@ -90,13 +90,13 @@ export function renderConversation(key, conv, viewer, author, onChange) {
     if (r.state === "COMMENTED" && !(r.body || "").trim()) continue;
     items.push({ at: r.at, el: reviewItem(r, viewer) });
   }
-  for (const c of conv.comments || []) items.push({ at: c.at, el: h("div.block", { style: { borderLeft: "1px solid var(--hair)", paddingLeft: "16px" } }, comment(c, viewer)) });
+  for (const c of conv.comments || []) items.push({ at: c.at, el: h("div.block", { class: "entry" }, comment(c, viewer)) });
   for (const t of conv.threads || []) items.push({ at: (t.comments[0] || {}).at, el: thread(key, t, viewer, author, onChange) });
   items.sort((a, b) => new Date(a.at) - new Date(b.at));
 
   const open = (conv.threads || []).filter((t) => !t.resolved).length;
-  return h("div",
-    h("div.row", { style: { alignItems: "baseline", justifyContent: "space-between" } },
+  return h("div.block",
+    h("div.row", { class: "spread base" },
       h("h2.h2", "Conversation"),
       h("span.small.muted", open ? `${open} open thread${open === 1 ? "" : "s"}` : "No open threads")),
     items.length ? items.map((i) => i.el) : h("p.muted", "Nobody has said anything yet."),
@@ -111,8 +111,8 @@ export function renderConversation(key, conv, viewer, author, onChange) {
 
 function reviewItem(r, viewer) {
   const [label, cls] = REVIEW[r.state] || [r.state, ".faint"];
-  return h("div.block", { style: { borderLeft: "1px solid var(--hair)", paddingLeft: "16px" } },
-    h("div.row", { style: { gap: "8px", alignItems: "center" } },
+  return h("div.block", { class: "entry" },
+    h("div.row", { class: "mid gap-u" },
       h("b", who(r.author, viewer)), h("span.stamp" + cls, label), h("span.small.muted", ago(r.at)), link(r.url, "on GitHub")),
     body(r.body));
 }

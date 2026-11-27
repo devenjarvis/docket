@@ -87,7 +87,7 @@ internal/server          HTTP API, server-sent events
 internal/web/static      the UI and the design system (no build step)
 internal/desktop         the Wails 3 window, notifications, single instance
 internal/demo            sample pull requests and the scripted ACP agent
-docs/design-system.md    Whiteprint
+docs/design-system.md    Whiteprint, the design system (tokens: docs/tokens.json; style guide: /static/styleguide.html)
 ```
 
 `internal/acp`, `internal/agents` and `internal/loginenv` come from [Lathe](https://github.com/devenjarvis/lathe) (MIT, Deven Jarvis), with the job policies replaced.

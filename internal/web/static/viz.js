@@ -13,7 +13,7 @@ export function beforeAfter(ba, outURL) {
   else if (ba.kind === "table") body = table(ba);
   else if (ba.kind === "image") body = images(ba, outURL);
   else body = texts(ba);
-  return h("figure.ba", { style: { margin: 0 } },
+  return h("figure.ba", { class: "m0" },
     h("header",
       h("span.label.ink", "Before and after"),
       h("span.stamp" + (ba.measured ? "" : ".open"), ba.measured ? "Measured" : "Reasoned, not run")),

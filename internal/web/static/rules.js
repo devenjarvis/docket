@@ -23,7 +23,7 @@ export function renderRules(S) {
     const applies = h("input.field", { value: rule.applies || "", placeholder: "the kind of code it is about, e.g. SQL migrations (blank: any)", "aria-label": "Applies to" });
     const scope = h("input.field.mono", { value: rule.scope === "everywhere" || !rule.scope ? "" : rule.scope, placeholder: "owner/repo (blank: everywhere)", "aria-label": "Scope" });
     const sev = h("select.field", { "aria-label": "How a finding is posted" }, Object.entries(SEV).map(([k, v]) => h("option", { value: k, selected: (rule.severity || "note") === k }, `${v} (${k})`)));
-    return h("div.block", { style: { padding: "16px", background: "var(--sunk)" } },
+    return h("div.block", { class: "well" },
       text, h("div.row", h("div.grow", applies), h("div.grow", scope), h("div", { style: { flex: "0 1 200px" } }, sev)),
       h("div.row", h("button.btn.primary", { onclick: () => save({ ...rule, text: text.value, applies: applies.value, scope: scope.value.trim() || "everywhere", severity: sev.value }, rule.id ? "edited by you" : "written by you") }, rule.id ? "Save" : "Add rule"),
         done && h("button.btn.quiet", { onclick: done }, "Cancel")));
@@ -35,18 +35,18 @@ export function renderRules(S) {
     const editor = h("div");
     const edit = () => editor.replaceChildren(form(r, () => editor.replaceChildren()));
     return h("tr",
-      h("td.mono", { style: { width: "1%" } }, r.id),
+      h("td.mono", { class: "fit" }, r.id),
       h("td",
-        h("div", { style: { fontWeight: 700, fontSize: "15px" } }, r.text),
+        h("div", { class: "item-title" }, r.text),
         h("div.small.muted", [r.applies && `applies to ${r.applies}`, r.origin, (r.except || []).length && `not in ${r.except.join(", ")}`].filter(Boolean).join(" · ")),
-        r.fading && h("div.small", { style: { color: "var(--red)", marginTop: "4px" } }, `Fading: you waved this off ${r.stats.overrode} of the last ${judged} times.`),
+        r.fading && h("div.small", { class: "text-red mt-s" }, `Fading: you waved this off ${r.stats.overrode} of the last ${judged} times.`),
         editor),
-      h("td", { style: { width: "1%", whiteSpace: "nowrap" } },
+      h("td", { class: "fit nowrap" },
         h("span.stamp" + (r.severity === "blocking" ? ".red" : r.severity === "question" ? ".open" : ".faint"), SEV[r.severity] || r.severity),
-        r.status === "trial" && h("div", { style: { marginTop: "6px" } }, h("span.stamp.open", "On trial"))),
+        r.status === "trial" && h("div", { class: "mt" }, h("span.stamp.open", "On trial"))),
       h("td.small", { style: { width: "150px" } }, judged ? [`fired ${r.stats.fired} · agreed ${r.stats.agreed}`, h("div.bar" + (r.fading ? ".red" : ""), h("i", { style: { width: pct + "%" } }))] : h("span.muted", "not fired yet")),
-      h("td.r", { style: { width: "1%", whiteSpace: "nowrap" } },
-        h("div.row", { style: { gap: "6px", justifyContent: "flex-end", flexWrap: "nowrap" } },
+      h("td.r", { class: "fit nowrap" },
+        h("div.row", { class: "gap-s end one-line" },
           r.status === "trial" && h("button.btn.small", { onclick: () => save({ ...r, status: "active" }, "confirmed after trial") }, "Keep"),
           r.scope !== "everywhere" && r.status !== "trial" && h("button.btn.small", { onclick: () => save({ ...r, scope: "everywhere" }, "widened to everywhere by you") }, "Widen"),
           h("button.btn.small", { onclick: edit }, "Edit"),
@@ -54,7 +54,7 @@ export function renderRules(S) {
   };
 
   const group = (title, sub, list) => list.length ? h("div.block",
-    h("div.row", { style: { alignItems: "baseline", justifyContent: "space-between" } }, h("h2.h2", `${title} · ${list.length}`), h("span.small.muted", sub)),
+    h("div.row", { class: "spread base" }, h("h2.h2", `${title} · ${list.length}`), h("span.small.muted", sub)),
     h("div.scroll-x", h("table.reg", h("tbody", list.map(row))))) : null;
 
   const adder = h("div");
@@ -76,16 +76,16 @@ export function renderRules(S) {
 
     h("div.cols",
       h("div.main", h("div.block.rule-top", h("h2.h2", "How it stays current"),
-        h("div.row", { style: { gap: "32px" } },
+        h("div.row", { class: "gap-l" },
           h("div.grow.block", { style: { minWidth: "240px" } }, h("div.label.ink", "Docket does on its own"),
-            h("ul.small", { style: { margin: 0, paddingLeft: "18px" } },
+            h("ul.small", { class: "list" },
               ["Counts every firing and whether you agreed.", "Exempts a repository when you answer \"not in this repo\".", "Flags a rule as fading when you override it most of the time.", "Has the agent read each repository's own conventions fresh on every pull request, and reports them as the repository's, not yours."].map((t) => h("li", t)))),
           h("div.grow.block", { style: { minWidth: "240px" } }, h("div.label.ink", "Docket asks you first"),
-            h("ul.small", { style: { margin: 0, paddingLeft: "18px" } },
+            h("ul.small", { class: "list" },
               ["Adding a rule: it drafts one from a decision, you put it on trial.", "Keeping a rule after its trial.", "Widening a rule from one repository to everywhere.", "Retiring a rule, unless you said \"stop raising it\"."].map((t) => h("li", t))))))),
       h("div.side", h("div.pencil", h("div.label", "Recent changes"),
         h("div.small.mono", (data.history || []).length ? data.history.map((l) => h("div", l)) : "none yet"),
-        h("div.small.muted", { style: { marginTop: "8px" } }, "Every change is a commit in ", h("span.mono", data.dir || "~/.docket/rules"), ", so you can read the history or undo one.")))),
+        h("div.small.muted", { class: "mt" }, "Every change is a commit in ", h("span.mono", data.dir || "~/.docket/rules"), ", so you can read the history or undo one.")))),
 
     retired.length ? h("details", h("summary", h("span.label.ink", `Retired · ${plural(retired.length, "rule")}`)),
       h("div.scroll-x", h("table.reg", h("tbody", retired.map((r) => h("tr", h("td.mono", r.id), h("td.muted", r.text),

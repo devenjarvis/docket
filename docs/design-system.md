@@ -2,7 +2,16 @@
 
 Review is redlining. Before screens, a change to a design was reviewed on a print of the drawing: the drawing in ink, the checker's notes in pencil, and the corrections that had to be made in red. Docket borrows that whole convention, because it already solves Docket's problem: three parties mark the same sheet and nobody may confuse them.
 
-Everything lives in one file, `internal/web/static/docket.css`. Components reference tokens only.
+## Where it lives
+
+| File | What |
+|---|---|
+| `internal/web/static/docket.css` | The implementation: tokens, components and utilities. Components reference tokens only. |
+| `docs/tokens.json` | The record of every token (colours in both themes, type, spacing, lines) with a usage note each. The Design System artifact is built from it. |
+| `internal/web/tokens_test.go` | Fails when `docket.css` and `tokens.json` disagree, or when a colour is added to the stylesheet without being recorded. |
+| `internal/web/static/styleguide.html` | The living style guide: every token and component, rendered by `docket.css` itself, in both themes. Open `/static/styleguide.html` while `make demo` runs. |
+
+To add or change a colour: change it in both theme blocks of `docket.css` and in `tokens.json`, then `make test`.
 
 ## Three marks
 
@@ -32,6 +41,8 @@ Diffs do not use red and green. An added line is filled blue; a removed line is 
 | `--red` / `--red-wash` | `#BF2A1A` `#F5DCD6` | `#FF8B76` `#43202A` | the reviewer |
 | `--add` / `--del` | `#D7E1F6` `#E2E0D9` | `#1B4078` `#0A1930` | diff fills |
 
+Every text colour reads at 4.5:1 or better on the grounds it is used on, in both themes (the lowest: `red` on `red-wash`, 4.5:1; `text-3` on `sunk`, 4.7:1). `hair` is 1.8:1, so it is never used for text. Quiet and disabled buttons use it as their border today and rely on their lettering to read as controls; WCAG asks 3:1 for a control's boundary, so this is a known gap.
+
 A whiteprint is a blue-violet line on drafting film; the blueprint is what it replaced, a pale line on Prussian blue. The theme follows the system by default.
 
 ## Type
@@ -54,15 +65,45 @@ All three are bundled as WOFF2 under the SIL Open Font License; the app makes no
 
 ## Components
 
-- **Sheet** (`.sheet`): the framed page. A review is a set of sheets, numbered like a drawing set: Brief, Context, one per decision, Diff, Sign-off.
-- **Title block** (`.titleblock`): the strip of labelled cells every sheet carries: pull request, title, author, the commit that was read, sheet n of m.
-- **Revision triangle** (`.tri`): the drafting mark for "changed here, see revision n". It numbers the reviewer's decisions: outlined while open, filled once answered. It appears in the queue, the tabs, the claims and the sign-off, so a decision is recognisable everywhere.
-- **Stamp** (`.stamp`): status in a box. Solid border: established. Dashed: open. Filled red: contradicted. Dashed pencil (`.faint`): the agent's label.
+Each has a class in `docket.css` and a rendered example in the style guide.
+
+**Frame**
+- **Sheet** (`.sheet`): the framed page. A review is a set of sheets, numbered like a drawing set: Brief, Context, one per decision, Diff, Conversation, Sign-off.
+- **Title block** (`.titleblock`): the strip of labelled cells every sheet carries: pull request, title, author, the commit that was read, sheet n of m. `.bare` drops its bottom rule (the masthead).
+- **Sheet index** (`nav.sheets`): the tabs, in reading order. The current one is lifted: sheet fill, heavy ink rule on top. A decision's tab carries its triangle and a `.tab-title`.
+
+**Marks**
+- **Revision triangle** (`.tri`): the drafting mark for "changed here, see revision n". It numbers the reviewer's decisions: outlined while open, filled once answered. It appears in the queue, the tabs, the claims and the sign-off, so a decision is recognisable everywhere. `.tri-link` leads a link with one.
+- **Stamp** (`.stamp`): status in a box. Solid border: established. Dashed: open. Filled red (`.contra`): contradicted. Dashed pencil (`.faint`): the agent's label. 2px red (`.red`): needs you. Filled ink (`.solid`): settled.
 - **Pencil box** (`.pencil`): anything the agent says or did.
-- **Your call** (`.yours`): the red-framed panel. Only the reviewer's controls go in it.
+
+**Reviewer** (red: the next move is yours)
+- **Your call** (`.yours`): the red-framed panel. Only the reviewer's controls go in it. One per sheet, `.sticky` in the side column.
 - **Option** (`.option`): a choice with its number key, its consequence stamped on it.
+- **Held step** (`.held`): a step the agent planned on your own pull request and the gate held for you, with the gate's reason, Push it / Post reply and Send back.
+
+**Controls**
+- **Button** (`.btn`, `.primary`, `.red`, `.quiet`, `.small`): square and lettered; the label says what happens. One `.primary` per view. A disabled button is dashed and says why next to it.
+- **Field** (`.field`, `label.check`): a sunk well with an ink line along the bottom.
+
+**Data**
 - **Attention bar** (`.attn`): where the changed lines go. Solid red: needs you. Hatched ink: verified. Fine ruling: mechanical.
+- **Register** (`table.reg`): every table. `tr.go` is a whole-row link. Stacked groups of one table use a fixed layout (`.queue`, `.lanes`) so their columns line up.
+- **Tally** (`.tally`): counts at the head of an inbox; `.big.red` when the count is yours.
+- **Path** (`.path`): the path a change sits on; `.step.changed` is where it changes.
 - **Before and after** (`.ba`): see below.
+
+**Code**
+- **Diff** (`.diff`): blue fill for added lines, grey and struck through for removed ones; `.hot` puts a red rule in the margin on the lines a decision is about.
+
+**Feedback**
+- **Banner** (`.banner`, `.banner.red`): one sentence about the whole sheet. Pencil for information, red when you must know before acting.
+- **Conversation entry** (`.entry`, `.entry.on-you`): a review, comment or thread; a heavy red rule when the next move is yours.
+- **Keys** (`.kbd`, `.live`): keyboard hints, and the square that blinks while the agent works.
+
+## Utilities
+
+Components draw; utilities only arrange. They sit at the end of `docket.css`, all on the 8 px unit, so screens do not need inline styles: `.row` and `.block` with `.gap-s` (4) `.gap-u` (8) `.gap-m` (12) `.gap-l` (32) `.gap-xl` (40) `.gap-2d`; alignment `.mid` `.base` `.top` `.spread` `.end` `.one-line`; spacing `.mt-s` `.mt` `.mt-l` `.mb` `.mb-l` `.py` `.my`; text `.strong` `.item-title` `.question` `.text-red` `.text-2` `.prewrap` `.nowrap` `.measure`; tables `.fit`; `.list`, `.stack`, `.sticky`, `.plain`, `.well`. Inline `style` is kept for values computed from data (a bar's width, a segment's flex).
 
 ## Before and after
 

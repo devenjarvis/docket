@@ -77,15 +77,15 @@ function render() {
 function masthead() {
   const q = S.st.queue;
   const cell = (label, value, extra) => h("div", h("span.label", label), h("span.cell-v", value), extra);
-  return h("div.sheet", { style: { marginBottom: "24px" } },
-    h("div.titleblock", { style: { borderBottom: 0 } },
+  return h("div.sheet", { class: "mb-l" },
+    h("div.titleblock", { class: "bare" },
       h("a.brand", { href: "#/" }, "Docket"),
       cell("Reviewer", q.viewer || "not signed in"),
       cell("Agent", S.st.agent.name || "none set up"),
-      h("div.wide", h("span.label", "GitHub"), h("span.cell-v", { style: { fontWeight: 400, fontFamily: "var(--mono)" } },
+      h("div.wide", h("span.label", "GitHub"), h("span.cell-v", { class: "v-mono" },
         q.syncError ? "sync failed" : "checked " + ago(q.lastSync))),
-      h("a", { href: "#/rules", style: { textDecoration: "none" } }, h("span.label", "Rulebook"), h("span.cell-v", plural(S.st.rules, "rule"))),
-      h("a", { href: "#/settings", style: { textDecoration: "none" } }, h("span.label", "Settings"), h("span.cell-v", S.st.demo ? "demo mode" : "open"))));
+      h("a", { href: "#/rules", class: "plain" }, h("span.label", "Rulebook"), h("span.cell-v", plural(S.st.rules, "rule"))),
+      h("a", { href: "#/settings", class: "plain" }, h("span.label", "Settings"), h("span.cell-v", S.st.demo ? "demo mode" : "open"))));
 }
 
 // inboxTabs switches between the pull requests waiting on the user's review
@@ -95,7 +95,7 @@ function inboxTabs(active) {
   const mine = S.st.mine || [], need = mine.filter((m) => m.lane === "needs-you").length;
   return h("nav.sheets", { "aria-label": "Inbox" },
     h("a", { href: "#/", "aria-current": active === "queue" ? "page" : null }, `To review · ${open}`),
-    h("a", { href: "#/mine", "aria-current": active === "mine" ? "page" : null }, `Yours · ${mine.length}`, need ? h("span.stamp.red", { style: { marginLeft: "8px", padding: "2px 5px" } }, `${need} need you`) : null));
+    h("a", { href: "#/mine", "aria-current": active === "mine" ? "page" : null }, `Yours · ${mine.length}`, need ? h("span.stamp.red", { class: "count" }, `${need} need you`) : null));
 }
 
 // --- queue -------------------------------------------------------------------
@@ -129,11 +129,11 @@ function queue() {
     for (let i = 1; i <= r.decisions; i++) tris.push(tri(i, i <= r.answered));
     return h("tr.go", { onclick: () => go(href(r.key)), tabindex: 0, onkeydown: (e) => { if (e.key === "Enter") go(href(r.key)); } },
       h("td", h("div.mono.small.muted", `${p.owner}/${p.repo} #${p.number}`),
-        h("div", { style: { fontWeight: 700, fontSize: "15px" } }, p.title),
+        h("div", { class: "item-title" }, p.title),
         h("div.small.muted", `${p.author} · ${(p.why || []).join(", ")}${r.slice ? ` · ${r.slice} files are yours` : ""}`),
-        r.pushed && h("div.small", { style: { color: "var(--red)" } }, "The author pushed since this was read. Reading again.")),
+        r.pushed && h("div.small", { class: "text-red" }, "The author pushed since this was read. Reading again.")),
       h("td", ready
-        ? (r.decisions ? h("div.row", { style: { gap: "4px" } }, tris) : h("span.stamp.faint", "none"))
+        ? (r.decisions ? h("div.row", { class: "gap-s" }, tris) : h("span.stamp.faint", "none"))
         : r.status === "failed" ? h("span.stamp.open", "failed")
         : h("span.small", h("span.live"), h("span", { "data-activity": r.key }, r.activity || "Queued"))),
       h("td", ready && h("div", h("div.num", `${r.needLines} of ${r.totalLines}`),
@@ -146,7 +146,7 @@ function queue() {
     const list = rs.filter((r) => r.lane === lane);
     if (!list.length) return null;
     return h("div.block",
-      h("div.row", { style: { alignItems: "baseline", justifyContent: "space-between" } },
+      h("div.row", { class: "spread base" },
         h("h2.h2", `${title} · ${list.length}`), sub && h("span.small.muted", sub)),
       h("div.scroll-x", h("table.reg.queue",
         h("thead", h("tr", h("th", "Pull request"), h("th", "Decisions"), h("th", "Lines needing you"), h("th.r", "Your time"), h("th.r", ""))),
@@ -161,13 +161,13 @@ function queue() {
       h("div", h("div.label", "Waiting on you"), h("div.big", open.length), h("div.small.muted", "pull requests, found automatically")),
       h("div", h("div.label", "Lines that need a person"), h("div.big.red", need), h("div.small.muted", total ? `of ${total} changed (${Math.round(need / total * 100)}%)` : "")),
       h("div", h("div.label", "Open decisions"), h("div.big", decisions), h("div.small.muted", minutes ? `about ${minutes} min of reading` : "")),
-      h("div", { style: { display: "flex", flexDirection: "column", gap: "8px", justifyContent: "center" } },
+      h("div", { class: "stack vcenter" },
         h("label.label", { for: "add" }, "Read another"),
-        h("div.row", { style: { gap: "8px", flexWrap: "nowrap" } }, addInput, h("button.btn", { onclick: add }, "Read")))),
+        h("div.row", { class: "one-line gap-u" }, addInput, h("button.btn", { onclick: add }, "Read")))),
     groups.some(Boolean) ? groups : h("div.block",
       h("h2.h2", "Nothing is waiting on you"),
       h("p.lede", "Pull requests where your review is requested or that are assigned to you appear here on their own, and your agent starts reading each one as it arrives.")),
-    h("div.row", { style: { justifyContent: "space-between", alignItems: "center" } },
+    h("div.row", { class: "spread mid" },
       h("span.small.muted", `Checks GitHub every ${Math.round(S.st.config.pollSeconds / 60) || 1} min for review requests and assignments.`),
       h("button.btn.quiet.small", { onclick: async () => { try { await post("/api/sync"); } catch (e) { toast(e.message); } refresh(true); } }, "Check now"))));
 }
@@ -190,26 +190,26 @@ function settings() {
         h("td.small.muted", a.ready ? "" : a.install),
         h("td.r", h("button.btn.small" + ((c.agent === a.id && !c.agentCommand) || (!c.agent && !c.agentCommand && S.st.agent.command === a.command) ? ".primary" : ""),
           { disabled: !a.ready, onclick: () => save({ agent: a.id }) }, "Use"))))))),
-      h("div.row", { style: { flexWrap: "nowrap" } }, cmd, h("button.btn", { onclick: () => save({ agentCommand: cmd.value }) }, "Use this command"))),
+      h("div.row", { class: "one-line" }, cmd, h("button.btn", { onclick: () => save({ agentCommand: cmd.value }) }, "Use this command"))),
     h("div.block.rule-top",
       h("h2.h2", "What the agent may do"),
       h("label.check", h("input", { type: "checkbox", checked: c.runCode, onchange: (e) => save({ runCode: e.target.checked }) }),
         "Let the agent build and run the pull request's code in its throwaway checkouts"),
-      h("p.small.muted", { style: { maxWidth: "70ch" } }, "Running the code is what lets a claim be proved instead of argued, and it means code from the pull request executes on this computer. Turn it off for repositories whose authors you would not run code from; the agent then reads and searches only, and marks what it could not prove.")),
+      h("p.small.muted", { class: "measure" }, "Running the code is what lets a claim be proved instead of argued, and it means code from the pull request executes on this computer. Turn it off for repositories whose authors you would not run code from; the agent then reads and searches only, and marks what it could not prove.")),
     h("div.block.rule-top",
       h("h2.h2", "Your pull requests"),
       h("p.lede", "When a reviewer comments or a check fails on a pull request you wrote, the agent can fix it, answer, and bring the branch up to date. It pushes new commits on top of your branch and never rewrites it."),
       [["auto", "Act on its own when it is safe", "A small model checks each step. A rename a reviewer asked for goes ahead; a dependency change, a CI edit, a large diff or a reply that pushes back waits for you. Everything it did has an Undo."],
        ["ask", "Always ask me first", "The agent plans every step, and none runs until you approve it."],
        ["off", "Off", "The agent never works on your pull requests."]].map(([v, label, text]) =>
-        h("label.check", { style: { alignItems: "flex-start" } },
+        h("label.check", { class: "top" },
           h("input", { type: "radio", name: "tend", checked: (c.tend || "auto") === v, onchange: () => save({ tend: v }) }),
-          h("span", h("b", label), h("div.small.muted", { style: { maxWidth: "70ch" } }, text))))),
+          h("span", h("b", label), h("div.small.muted", { class: "measure" }, text))))),
     h("div.block.rule-top",
       h("h2.h2", "Reviews"),
       h("label.check", h("input", { type: "checkbox", checked: c.receipt, onchange: (e) => save({ receipt: e.target.checked }) }),
         "Include the attention receipt in the review I post (what I read, what I took on the agent's proof)"),
-      h("div.row", { style: { alignItems: "center" } }, h("span", "Appearance"),
+      h("div.row", { class: "mid" }, h("span", "Appearance"),
         ["auto", "whiteprint", "blueprint"].map((t) => h("button.btn.small" + (theme === t ? ".primary" : ""), { onclick: () => setTheme(t) }, t)))),
     h("p.small.muted.mono", "Data: " + S.st.home)));
 }

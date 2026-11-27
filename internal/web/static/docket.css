@@ -323,6 +323,70 @@ details[open] > summary::before { content: "\2212"; }
 .bar.red > i { background: var(--red); }
 .thread { border-left: 1px dashed var(--pencil); padding-left: calc(var(--u) * 1.5); white-space: pre-wrap; color: var(--text-2); }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--ink); color: var(--on-ink); padding: 12px 18px; z-index: 10; max-width: min(90vw, 640px); }
+
+/* --- named parts that used to be inline styles ------------------------------- */
+/* a decision's title in the sheet index: body face, clipped */
+.tab-title { max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; font: 13px/1 var(--body); letter-spacing: 0; }
+/* a count stamp sitting in a tab */
+.stamp.count { margin-left: var(--u); padding: 2px 5px; }
+/* the masthead's title block: the sheet below it carries the rule */
+.titleblock.bare { border-bottom: 0; }
+.titleblock .wide .cell-v.v-mono { font-family: var(--mono); font-weight: 400; }
+/* a link led by a revision triangle */
+.tri-link { display: inline-flex; gap: calc(var(--u) * 0.75); align-items: center; }
+/* the question in "Your call" */
+.question { font: 700 17px/1.3 var(--body); color: var(--text); }
+/* a step the agent holds for the reviewer: red, because the next move is theirs */
+.held { border: 2px solid var(--red); padding: calc(var(--u) * 1.5); margin-bottom: calc(var(--u) * 1.5); }
+/* one item in a conversation; .on-you when its next move is the reviewer's */
+.entry { border-left: 1px solid var(--hair); padding-left: calc(var(--u) * 2); }
+.entry.on-you { border-left: var(--heavy) solid var(--red); }
+/* a sunk well for an inline form */
+.well { padding: calc(var(--u) * 2); background: var(--sunk); }
+.label.agent-ink { color: var(--pencil); }
+
+/* --- utilities: all on the 8 px unit. Components first; these only arrange. -- */
+.strong { font-weight: 700; }
+.item-title { font-weight: 700; font-size: 15px; }
+.text-red { color: var(--red); }
+.text-2 { color: var(--text-2); }
+.prewrap { white-space: pre-wrap; }
+.nowrap { white-space: nowrap; }
+.measure { max-width: 70ch; }
+.plain { text-decoration: none; }
+.fit { width: 1%; }
+.list { margin: 0; padding-left: calc(var(--u) * 2.5); }
+.m0 { margin: 0; }
+.w-auto { width: auto; }
+.self-start { align-self: start; }
+.sticky { position: sticky; top: calc(var(--u) * 2); }
+.stack { display: flex; flex-direction: column; gap: var(--u); }
+.py { padding: var(--u) 0; }
+.my { margin: var(--u) 0; }
+.mt-s { margin-top: calc(var(--u) / 2); }
+.mt { margin-top: var(--u); }
+.mt-l { margin-top: calc(var(--u) * 2); }
+.mb { margin-bottom: var(--u); }
+.mb-l { margin-bottom: calc(var(--u) * 3); }
+.gap-s { gap: calc(var(--u) / 2); }
+.gap-u { gap: var(--u); }
+.gap-m { gap: calc(var(--u) * 1.5); }
+.gap-l { gap: calc(var(--u) * 4); }
+.gap-xl { gap: calc(var(--u) * 5); }
+.gap-2d { gap: var(--u) calc(var(--u) * 2); }
+.one-line { flex-wrap: nowrap; }
+.mid { align-items: center; }
+.base { align-items: baseline; }
+.top, label.check.top { align-items: flex-start; }
+.spread { justify-content: space-between; }
+.end { justify-content: flex-end; }
+.vcenter { justify-content: center; }
+
+/* stacked groups of the same table share their columns */
+table.reg.lanes { table-layout: fixed; min-width: 680px; }
+table.reg.lanes th:nth-child(2) { width: 180px; }
+table.reg.lanes th:nth-child(3) { width: 160px; }
+table.reg.lanes th:nth-child(4) { width: 120px; }
 @media (max-width: 720px) {
   .page { padding: var(--u); }
   .sheet > .body { padding: calc(var(--u) * 2); }
