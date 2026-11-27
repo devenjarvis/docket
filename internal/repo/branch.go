@@ -169,11 +169,20 @@ func (g Git) Push(ctx context.Context, b Branch, pr model.PR, from, to string) e
 		return errors.New("the pull request has no head branch")
 	}
 	_, err := b.git(ctx, "push", b.Remote, to+":refs/heads/"+pr.HeadRef)
+	return pushError(err)
+}
+
+// pushError tells a branch that moved from a push the remote refused for
+// another reason, such as a protected branch.
+func pushError(err error) error {
 	if err == nil {
 		return nil
 	}
 	msg := err.Error()
-	for _, s := range []string{"rejected", "non-fast-forward", "fetch first"} {
+	if strings.Contains(msg, "[remote rejected]") {
+		return err
+	}
+	for _, s := range []string{"non-fast-forward", "fetch first", "[rejected]"} {
 		if strings.Contains(msg, s) {
 			return fmt.Errorf("%w: %v", ErrMoved, err)
 		}
@@ -185,7 +194,12 @@ func (g Git) Revert(ctx context.Context, b Branch, tip, sha string) (string, err
 	if _, err := b.git(ctx, "reset", "-q", "--hard", tip); err != nil {
 		return "", err
 	}
-	if _, err := b.git(ctx, "revert", "--no-edit", sha); err != nil {
+	args := []string{"revert", "--no-edit"}
+	if _, err := b.git(ctx, "rev-parse", "--verify", "--quiet", sha+"^2"); err == nil {
+		// A merge: keep the branch's side.
+		args = append(args, "-m", "1")
+	}
+	if _, err := b.git(ctx, append(args, sha)...); err != nil {
 		_, _ = b.git(ctx, "revert", "--abort")
 		return "", err
 	}
@@ -196,6 +210,6 @@ func (g Git) Revert(ctx context.Context, b Branch, tip, sha string) (string, err
 func (g Git) ReleaseBranch(ctx context.Context, pr model.PR, b Branch) {
 	mirror := g.mirror(pr)
 	_, _ = git(ctx, mirror, "worktree", "remove", "--force", b.Work)
-	_ = os.RemoveAll(b.Scratch)
+	_ = os.RemoveAll(b.Dir)
 	_, _ = git(ctx, mirror, "worktree", "prune")
 }

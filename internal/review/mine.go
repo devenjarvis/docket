@@ -82,15 +82,29 @@ func (e *Engine) syncMine(ctx context.Context) error {
 			e.Logf("could not load %s: %v", key, err)
 		}
 	}
+	type gone struct {
+		pr model.PR
+		b  model.TendBranch
+	}
+	var release []gone
 	e.mu.Lock()
 	for key, m := range e.mine {
-		if !open[key] {
+		if !open[key] && !e.tending[key] {
 			delete(e.mine, key)
 			_ = os.Remove(e.minePath(m.PR))
+			if m.Tend != nil && m.Tend.Branch.Dir != "" {
+				release = append(release, gone{m.PR, m.Tend.Branch})
+			}
 		}
 	}
 	e.mineSeen = true
 	e.mu.Unlock()
+	if e.Branches != nil {
+		// Merged or closed: its checkout is no longer needed.
+		for _, g := range release {
+			e.Branches.ReleaseBranch(ctx, g.pr, fromBranch(g.b))
+		}
+	}
 	e.Hub.Send(Event{Type: "mine"})
 	return nil
 }

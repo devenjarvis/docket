@@ -260,10 +260,12 @@ func tendPolicy(b repo.Branch) *acp.Policy {
 func (e *Engine) runTend(parent context.Context, key string, m model.Mine, command, agentName, mode string) {
 	ctx, cancel := context.WithTimeout(parent, tendTimeout)
 	defer cancel()
-	moved := false
+	moved, released := false, false
 	defer func() {
 		e.mu.Lock()
-		delete(e.tending, key)
+		if !released {
+			delete(e.tending, key)
+		}
 		e.mu.Unlock()
 		if moved && parent.Err() == nil {
 			// Plan once more from the new head; the auto-run cap stops a loop.
@@ -289,7 +291,13 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 		failed(fmt.Errorf("could not check out the branch: %w", err))
 		return
 	}
-	e.updateTend(key, func(_ *model.Mine, t *model.Tend) { t.Branch, t.Tip = toBranch(b), b.Start })
+	var old model.TendBranch
+	e.updateTend(key, func(_ *model.Mine, t *model.Tend) { old, t.Branch, t.Tip = t.Branch, toBranch(b), b.Start })
+	if old.Dir != "" && old.Dir != b.Dir {
+		// Undo of earlier steps reverts in the new checkout; the old one is
+		// not needed.
+		e.Branches.ReleaseBranch(ctx, pr, fromBranch(old))
+	}
 
 	checks := make([]map[string]any, 0, len(m.Checks))
 	for _, c := range m.Checks {
@@ -434,8 +442,10 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 	var done, asks int
 	e.updateTend(key, func(_ *model.Mine, t *model.Tend) {
 		// Ready and free in one step, so an approval sent the moment the
-		// page shows the run as ready is not refused as busy.
+		// page shows the run as ready is not refused as busy. From here a new
+		// claim on key is someone else's, so the deferred cleanup leaves it.
 		delete(e.tending, key)
+		released = true
 		t.Status, t.Activity, t.At = "ready", "", time.Now()
 		for _, a := range t.Actions {
 			switch a.State {
@@ -760,7 +770,7 @@ func (e *Engine) Decide(ctx context.Context, key, id, choice, body, note string)
 	notes := append([]string(nil), t.Notes...)
 	e.saveMineLocked(m)
 	e.mu.Unlock()
-	if replan {
+	if replan && e.tendMode() != TendOff {
 		return e.startTend(key, notes, false)
 	}
 	return nil

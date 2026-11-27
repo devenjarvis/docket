@@ -59,3 +59,47 @@ func TestAPushNeverCarriesAHeldFix(t *testing.T) {
 		t.Errorf("with a1 pushed: %q", got)
 	}
 }
+
+func TestWhenARunStartsOnItsOwn(t *testing.T) {
+	e := New(t.TempDir(), nil, nil, nil)
+	e.Branches = stubBrancher{}
+	pr := model.PR{Owner: "o", Repo: "r", Number: 1, HeadSHA: "h1"}
+	thread := func(id, author string) model.Thread {
+		return model.Thread{ID: id, Comments: []model.Comment{{ID: id + "c", Author: author}}}
+	}
+	mine := func(threads ...model.Thread) *model.Mine {
+		return &model.Mine{PR: pr, Conversation: model.Conversation{Threads: threads}}
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	first := mine(thread("T1", "sam"))
+	if e.maybeTendLocked("me", nil, first) {
+		t.Error("a pull request seen for the first time started a run")
+	}
+	same := mine(thread("T1", "sam"))
+	if e.maybeTendLocked("me", first, same) {
+		t.Error("nothing new started a run")
+	}
+	fresh := mine(thread("T1", "sam"), thread("T2", "lee"))
+	if !e.maybeTendLocked("me", same, fresh) {
+		t.Error("a new thread did not start a run")
+	}
+
+	capped := mine(thread("T1", "sam"), thread("T2", "lee"), thread("T3", "kim"))
+	fresh.AutoRuns = maxAutoRuns
+	if e.maybeTendLocked("me", fresh, capped) {
+		t.Error("a run started past the cap")
+	}
+	if capped.Seen != fresh.Seen {
+		t.Error("an item was marked seen though no run covered it")
+	}
+
+	fresh.AutoRuns = 0
+	fresh.Tend = &model.Tend{Actions: []model.TendAction{{ID: "a1", State: model.StateWaiting}}}
+	if e.maybeTendLocked("me", fresh, mine(thread("T1", "sam"), thread("T2", "lee"), thread("T4", "kim"))) {
+		t.Error("a run started while steps wait for the user")
+	}
+}
+
+type stubBrancher struct{ repo.Brancher }

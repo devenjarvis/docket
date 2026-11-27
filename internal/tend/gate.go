@@ -35,7 +35,13 @@ var manifests = map[string]bool{
 	"gemfile": true, "gemfile.lock": true, "composer.json": true, "composer.lock": true,
 	"build.gradle": true, "build.gradle.kts": true, "pom.xml": true, "mix.exs": true, "mix.lock": true,
 	"package.swift": true, "package.resolved": true, "podfile": true, "podfile.lock": true,
+	"bun.lock": true, "deno.lock": true, "deno.json": true, "deno.jsonc": true, "pnpm-workspace.yaml": true,
+	".npmrc": true, ".yarnrc": true, ".yarnrc.yml": true, "pip.conf": true, "pubspec.yaml": true, "pubspec.lock": true,
+	"directory.build.props": true, "directory.packages.props": true, "packages.config": true, "nuget.config": true,
 }
+
+// manifestRe catches project files named after the project.
+var manifestRe = regexp.MustCompile(`\.(csproj|fsproj|vbproj|gemspec)$`)
 
 var toolchains = map[string]bool{
 	".tool-versions": true, ".nvmrc": true, ".node-version": true, ".python-version": true, ".ruby-version": true,
@@ -88,6 +94,9 @@ func Floor(a model.TendAction, patch string) (model.Verdict, bool) {
 			if f.Binary {
 				return ask(fmt.Sprintf("It changes a binary file (%s).", f.Path))
 			}
+			if len(f.Hunks) == 0 && f.Status != "added" {
+				return ask(fmt.Sprintf("It changes %s without changing a line: a mode, a link or a move.", f.Path))
+			}
 			// A file moved away is judged as the file it was, too.
 			for _, name := range []string{f.Path, f.OldPath} {
 				if name == "" {
@@ -96,7 +105,7 @@ func Floor(a model.TendAction, patch string) (model.Verdict, bool) {
 				p := strings.ToLower(name)
 				base := path.Base(p)
 				switch {
-				case manifests[base] || requirementsRe.MatchString(base):
+				case manifests[base] || requirementsRe.MatchString(base) || manifestRe.MatchString(base):
 					return ask(fmt.Sprintf("It changes dependencies (%s).", name))
 				case toolchains[base]:
 					return ask(fmt.Sprintf("It changes the toolchain (%s).", name))

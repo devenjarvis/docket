@@ -204,3 +204,33 @@ func TestUndoStillWorksAfterTheNextRun(t *testing.T) {
 		t.Error("the same step was undone twice")
 	}
 }
+
+func TestSendingBackWithTheAgentOffDoesNotFail(t *testing.T) {
+	mode := "auto"
+	eng, _ := start(t, func(e *review.Engine, home string) {
+		e.Branches = demo.Checkout{Home: home}
+		e.TendMode = func() string { return mode }
+	})
+	ctx := context.Background()
+	if err := eng.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.Tend(demo.BlockedKey); err != nil {
+		t.Fatal(err)
+	}
+	waitTend(t, eng, demo.BlockedKey)
+	if err := eng.Decide(ctx, demo.BlockedKey, "a5", "approve", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	mode = "off"
+	if err := eng.Decide(ctx, demo.BlockedKey, "a4", "send-back", "", "Later."); err != nil {
+		t.Fatalf("send-back with the agent off: %v", err)
+	}
+	m, _ := eng.MineOne(demo.BlockedKey)
+	if a := action(t, m, "a4"); a.State != model.StateRejected {
+		t.Errorf("a4 = %+v", a)
+	}
+	if m.Tend.Status == "running" {
+		t.Error("a run started with the agent off")
+	}
+}

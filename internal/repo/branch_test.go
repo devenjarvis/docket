@@ -247,3 +247,36 @@ func TestResolveGivesAFullSHA(t *testing.T) {
 		t.Error("a missing ref resolved")
 	}
 }
+
+func TestPushErrorTellsAMovedBranchFromARefusal(t *testing.T) {
+	moved := errors.New("git push: ! [rejected] x -> feature (fetch first)")
+	if !errors.Is(pushError(moved), ErrMoved) {
+		t.Error("a branch that moved was not reported as moved")
+	}
+	refused := errors.New("git push: ! [remote rejected] x -> feature (protected branch hook declined)")
+	if errors.Is(pushError(refused), ErrMoved) {
+		t.Error("a protected branch was reported as moved")
+	}
+}
+
+func TestRevertOfAMerge(t *testing.T) {
+	f := newBranch(t)
+	writeFile(t, f.b.Work, "m.txt", "side\n")
+	run(t, f.b.Work, "checkout", "-q", "-b", "side", f.b.Start)
+	run(t, f.b.Work, "add", "-A")
+	run(t, f.b.Work, "commit", "-q", "-m", "side")
+	side := run(t, f.b.Work, "rev-parse", "HEAD")
+	run(t, f.b.Work, "checkout", "-q", "-B", "docket/tend/3", f.b.Start)
+	writeFile(t, f.b.Work, "n.txt", "main side\n")
+	run(t, f.b.Work, "add", "-A")
+	run(t, f.b.Work, "commit", "-q", "-m", "ours")
+	run(t, f.b.Work, "merge", "-q", "--no-ff", "-m", "merge side", side)
+	merge := run(t, f.b.Work, "rev-parse", "HEAD")
+	rev, err := f.g.Revert(context.Background(), f.b, merge, merge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(f.b.Work, "m.txt")); err == nil {
+		t.Errorf("the revert %s kept the merged file", rev)
+	}
+}
