@@ -45,6 +45,9 @@ export function reviewKeys(S, e) {
   const to = (j) => { const s = list[j]; if (s) go(href(v.key, s.sheet, s.id)); };
   if (e.key === "n" && S.route.sheet === "signoff") { const r = nextReview(S); if (r) go(href(r.key)); }
   else if (e.key === "ArrowRight" || e.key === "n") to(i + 1);
+  else if (e.key === "u") { const d = nextOpen(v, S.route.id); if (d) go(href(v.key, "d", d.id)); else toast("Every decision is answered."); }
+  else if (e.key === "s") go(href(v.key, "signoff"));
+  else if (e.key === "Backspace" && advancedFrom) { e.preventDefault(); const back = advancedFrom; advancedFrom = null; go(back); }
   else if (e.key === "ArrowLeft" || e.key === "p") to(i - 1);
   else if (S.route.sheet === "d" && /^[1-9]$/.test(e.key)) {
     const d = v.brief.decisions.find((x) => x.id === S.route.id);
@@ -53,13 +56,51 @@ export function reviewKeys(S, e) {
   }
 }
 
+// nextOpen is the first unanswered decision after the one with id after,
+// wrapping round to the start; null when every decision is answered.
+function nextOpen(v, after) {
+  const ds = v.brief.decisions || [];
+  const from = ds.findIndex((d) => d.id === after) + 1;
+  for (let k = 0; k < ds.length; k++) {
+    const d = ds[(from + k) % ds.length];
+    if (d.id !== after && !(v.answers[d.id] || {}).option) return d;
+  }
+  return null;
+}
+
+// advancedFrom is the decision sheet an answer moved the reviewer away
+// from, so Backspace can bring them back.
+let advancedFrom = null;
+let advanceTimer;
+
 async function answer(v, d, patch) {
   const cur = v.answers[d.id] || {};
   const next = { option: cur.option || "", comment: cur.comment || "", feedback: cur.feedback || "", ...patch };
   // Choosing a different option starts from that option's own draft.
-  if (patch.option && patch.option !== cur.option) next.comment = "";
-  try { await post("/api/answer", { key: v.key, decision: d.id, ...next }); refresh(true); }
-  catch (e) { toast(e.message); }
+  const chose = patch.option && patch.option !== cur.option;
+  if (chose) next.comment = "";
+  try { await post("/api/answer", { key: v.key, decision: d.id, ...next }); }
+  catch (e) { toast(e.message); return; }
+  await refresh(true);
+  if (chose) advanceAfter(v, d);
+}
+
+// advanceAfter moves on from a decision just answered: to the next open
+// decision, or to Sign-off once none is left. It waits a beat so the choice
+// is seen, and stays put if the reviewer starts typing or moves first.
+function advanceAfter(v, d) {
+  clearTimeout(advanceTimer);
+  const here = location.hash;
+  advanceTimer = setTimeout(() => {
+    const el = document.activeElement;
+    if (location.hash !== here || (el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT"))) return;
+    const answers = { ...v.answers, [d.id]: { option: "x" } };
+    const to = nextOpen({ ...v, answers }, d.id);
+    const n = (id) => v.brief.decisions.findIndex((x) => x.id === id) + 1;
+    advancedFrom = here;
+    go(to ? href(v.key, "d", to.id) : href(v.key, "signoff"));
+    toast(`${to ? `On to decision ${n(to.id)}` : "Every decision is answered: on to Sign-off"}. Backspace goes back to decision ${n(d.id)}.`);
+  }, 400);
 }
 
 // --- frame ------------------------------------------------------------------
@@ -75,10 +116,16 @@ export function renderReview(S) {
     cell("Read at", v.readSha ? v.readSha.slice(0, 7) : "not yet"),
     cell("Sheet", list.length ? `${i + 1} of ${list.length}` : "none"));
 
+  // Past two decisions, a decision's tab is its triangle alone, so the index
+  // keeps to one row; Sign-off is pinned at the right either way.
+  const compact = (b && b.decisions || []).length > 2;
+  const tab = (s) => h("a", { href: href(v.key, s.sheet, s.id), "aria-current": s === list[i] ? "page" : null, title: s.decision ? `Decision ${s.n}: ${s.decision.title}` : null,
+    "aria-label": s.decision && compact ? `Decision ${s.n}: ${s.decision.title}` : null, class: s.decision && compact ? "tab-tri" : null },
+  s.decision ? [tri(s.n, !!(v.answers[s.id] && v.answers[s.id].option)), !compact && h("span", { class: "tab-title" }, s.decision.title)] : s.label);
   const tabs = b && h("nav.sheets", { "aria-label": "Sheets" },
-    list.map((s) => h("a", { href: href(v.key, s.sheet, s.id), "aria-current": s === list[i] ? "page" : null, title: s.decision ? s.decision.title : null },
-      s.decision ? [tri(s.n, !!(v.answers[s.id] && v.answers[s.id].option)), h("span", { class: "tab-title" }, s.decision.title)] : s.label)),
+    list.filter((s) => s.sheet !== "signoff").map(tab),
     h("span.spacer"),
+    list.filter((s) => s.sheet === "signoff").map(tab),
     h("a", { href: p.url || "#", target: "_blank", rel: "noreferrer", onclick: openExternal }, "On GitHub"));
 
   let body;
@@ -100,12 +147,25 @@ export function renderReview(S) {
 }
 
 function pager(v, list, i) {
-  const prev = list[i - 1], next = list[i + 1];
+  const prev = list[i - 1], cur = list[i];
+  let next = list[i + 1];
   const name = (s) => s.decision ? `Decision ${s.n}` : s.label;
+  const link = (s, cls) => h("a.btn" + cls, { href: href(v.key, s.sheet, s.id) }, s === prev ? "← " + name(s) : name(s) + (cls === ".primary" ? " →" : ""));
+  // Once every decision is answered, the way forward is Sign-off; Diff and
+  // Conversation stay a click away beside it.
+  const done = (v.brief.decisions || []).every((d) => (v.answers[d.id] || {}).option);
+  let aside = [];
+  if (done && cur.sheet !== "signoff") {
+    next = list.find((s) => s.sheet === "signoff");
+    aside = list.filter((s) => (s.sheet === "diff" || s.sheet === "conversation") && s !== cur && s !== prev)
+      .map((s) => h("a.small", { href: href(v.key, s.sheet, s.id) }, s.label));
+  }
+  const open = (v.brief.decisions || []).some((d) => !(v.answers[d.id] || {}).option);
   return h("div.row.rule-top", { class: "spread mid" },
-    prev ? h("a.btn.quiet", { href: href(v.key, prev.sheet, prev.id) }, "← " + name(prev)) : h("span"),
-    h("span.small.muted", h("span.kbd", "←"), " ", h("span.kbd", "→"), " move between sheets"),
-    next ? h("a.btn.primary", { href: href(v.key, next.sheet, next.id) }, name(next) + " →") : h("span"));
+    prev ? link(prev, ".quiet") : h("span"),
+    h("span.small.muted", h("span.kbd", "←"), " ", h("span.kbd", "→"), " sheets",
+      open && [" · ", h("span.kbd", "u"), " next open decision"], " · ", h("span.kbd", "s"), " sign-off"),
+    h("div.row", { class: "mid" }, aside, next ? link(next, ".primary") : h("span")));
 }
 
 function waiting(v) {
