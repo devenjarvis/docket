@@ -43,7 +43,8 @@ export function reviewKeys(S, e) {
   if (!v || !v.brief) return;
   const list = sheetsOf(v), i = at(S, list);
   const to = (j) => { const s = list[j]; if (s) go(href(v.key, s.sheet, s.id)); };
-  if (e.key === "ArrowRight" || e.key === "n") to(i + 1);
+  if (e.key === "n" && S.route.sheet === "signoff") { const r = nextReview(S); if (r) go(href(r.key)); }
+  else if (e.key === "ArrowRight" || e.key === "n") to(i + 1);
   else if (e.key === "ArrowLeft" || e.key === "p") to(i - 1);
   else if (S.route.sheet === "d" && /^[1-9]$/.test(e.key)) {
     const d = v.brief.decisions.find((x) => x.id === S.route.id);
@@ -356,15 +357,7 @@ function signoff(S, v) {
   if (!d) return h("p", "Loading");
   const comments = (d.comments || []).map((c) => ({ ...c }));
   const bodyBox = h("textarea.field", { rows: Math.min(14, 3 + (d.body || "").split("\n").length), value: d.body || "", "aria-label": "Review summary" });
-  const locked = (d.locks || []).length > 0;
-  const send = async (event) => {
-    try {
-      const r = await post("/api/post", { key: v.key, event, body: bodyBox.value, comments });
-      toast("Posted."); refresh(true); if (r.url) console.log(r.url);
-    } catch (e) { toast(e.message); }
-  };
   const decN = (id) => b.decisions.findIndex((x) => x.id === id) + 1;
-  const suggested = d.event;
 
   return h("div.cols",
     h("div.main",
@@ -400,14 +393,84 @@ function signoff(S, v) {
             h("td.small", l.covered), h("td.r.num", clock(l.seconds))))))),
         h("p.small.muted", "Nobody downstream has to guess whether approved meant read."))),
 
-    h("div.side",
-      h("div.yours", { class: "sticky" },
-        h("div.label", "Verdict"),
-        h("button.btn.red", { "aria-pressed": String(suggested === "REQUEST_CHANGES"), onclick: () => send("REQUEST_CHANGES") }, "Request changes"),
-        h("button.btn" + (suggested === "COMMENT" ? ".primary" : ""), { onclick: () => send("COMMENT") }, "Comment only"),
-        h("button.btn" + (suggested === "APPROVE" ? ".primary" : ""), { disabled: locked, onclick: () => send("APPROVE") }, locked ? "Approve · locked" : "Approve"),
-        locked && h("div.block", { class: "gap-s" }, h("div.small", "Approve unlocks when none of these remain:"),
-          h("ul.small", { class: "list" }, d.locks.map((l) => h("li", l)))),
-        (d.warnings || []).map((w) => h("div.small.muted", prose(w))),
-        h("div.small.muted", "When the author pushes, Docket reads again and brings you only what changed."))));
+    h("div.side", verdict(S, v, d, comments, bodyBox)));
+}
+
+const EVENT = { APPROVE: "Approve", COMMENT: "Comment only", REQUEST_CHANGES: "Request changes" };
+
+// verdict is the sign-off's red panel. A verdict button only opens a confirm
+// row, as Merge does on your own pull requests: nothing posts on one click.
+// Once the review is posted, the panel becomes a receipt and the way on to
+// the next pull request.
+function verdict(S, v, d, comments, bodyBox) {
+  const panel = (...kids) => h("div.yours", { class: "sticky" }, kids);
+  if (v.status === "posted" && v.posted && S.repost !== v.key) return panel(posted(S, v));
+  const locked = (d.locks || []).length > 0, suggested = d.event;
+  const confirmRow = h("div.block.hidden", { class: "gap-u well" });
+  const ask = (event) => {
+    const inline = comments.filter((c) => c.inline && c.body.trim()).length;
+    const sha = v.readSha ? v.readSha.slice(0, 7) : "the commit that was read";
+    const post = h("button.btn.red", { onclick: (ev) => send(S, v, event, bodyBox.value, comments, ev) }, "Post review");
+    confirmRow.replaceChildren(
+      h("div", "Post ", h("i", EVENT[event]), ` with ${inline ? plural(inline, "inline comment") : "no inline comments"} on `, h("span.mono", sha), "?"),
+      h("div.row", { class: "mid gap-u" }, post,
+        h("button.btn.quiet", { onclick: () => confirmRow.classList.add("hidden") }, "Cancel")));
+    confirmRow.classList.remove("hidden");
+    post.focus();
+  };
+  return panel(
+    h("div.label", "Verdict"),
+    h("button.btn" + (suggested === "APPROVE" ? ".primary" : ""), { disabled: locked, onclick: () => ask("APPROVE") }, locked ? "Approve · locked" : "Approve"),
+    h("button.btn" + (suggested === "COMMENT" ? ".primary" : ""), { onclick: () => ask("COMMENT") }, "Comment only"),
+    h("button.btn.red", { "aria-pressed": String(suggested === "REQUEST_CHANGES"), onclick: () => ask("REQUEST_CHANGES") }, "Request changes"),
+    confirmRow,
+    locked && h("div.block", { class: "gap-s" }, h("div.small", "Approve unlocks when none of these remain:"),
+      h("ul.small", { class: "list" }, d.locks.map((l) => h("li", l)))),
+    (d.warnings || []).map((w) => h("div.small.muted", prose(w))),
+    h("div.small.muted", "When the author pushes, Docket reads again and brings you only what changed."));
+}
+
+async function send(S, v, event, body, comments, ev) {
+  const btn = ev && ev.currentTarget;
+  if (btn) btn.disabled = true;
+  try {
+    await post("/api/post", { key: v.key, event, body, comments });
+    S.repost = null;
+    toast("Posted to GitHub.");
+    refresh(true);
+  } catch (e) {
+    toast(e.message);
+    if (btn) btn.disabled = false;
+  }
+}
+
+// posted is the receipt that replaces the verdict buttons, and the one
+// button that keeps the loop moving.
+function posted(S, v) {
+  const next = nextReview(S);
+  return [
+    h("div.label", "Posted"),
+    h("div", "You posted ", h("i", EVENT[v.posted.event] || "a review"), " ", ago(v.posted.at), "."),
+    v.posted.url && h("a.small", { href: v.posted.url, target: "_blank", rel: "noreferrer", onclick: openExternal }, "See it on GitHub"),
+    next
+      ? h("div.block", { class: "gap-s" },
+        h("a.btn.primary", { href: href(next.key) }, "Next review →"),
+        h("div.small", h("span.mono", `${next.pr.owner}/${next.pr.repo} #${next.pr.number}`), " · ", next.pr.title))
+      : h("div.block", { class: "gap-s" }, h("div", { class: "strong" }, "Inbox is clear"), h("a.btn", { href: "#/" }, "Back to the inbox")),
+    next && h("div.small.muted", h("span.kbd", "n"), " opens it"),
+    h("button.btn.quiet.small", { onclick: () => { S.repost = v.key; refresh(true); } }, "Post another review"),
+  ];
+}
+
+const LANE_ORDER = ["judgment", "skim", "clear"];
+
+// nextReview is the pull request to go to once this one is signed: the first
+// open review that needs judgment, else the next one that is ready.
+export function nextReview(S) {
+  const rs = ((S.st && S.st.queue.reviews) || []).filter((r) => r.key !== S.route.key && r.status === "ready" && r.lane !== "done");
+  for (const lane of LANE_ORDER) {
+    const r = rs.find((x) => x.lane === lane);
+    if (r) return r;
+  }
+  return rs[0] || null;
 }
