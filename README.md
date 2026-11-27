@@ -9,7 +9,6 @@ Docket never calls a model itself. It starts the agent you already use (Claude C
 ## Run it
 
 ```bash
-go mod tidy          # once: resolves the Wails 3 dependency
 make demo            # sample pull requests and a scripted agent, in a browser
 make serve           # your real pull requests, in a browser (http://127.0.0.1:4127)
 make app && ./docket # the desktop app (Wails 3)
