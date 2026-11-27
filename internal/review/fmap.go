@@ -75,3 +75,6 @@ func touch(home, repo string, areas []string) {
 	}
 	_ = config.WriteJSON(mapPath(home), m)
 }
+
+// LoadMap returns the reviewer's map of every repository.
+func LoadMap(home string) Map { return loadMap(home) }

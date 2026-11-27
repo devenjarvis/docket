@@ -33,6 +33,76 @@ type Config struct {
 	// Tend is how the agent works on the user's own pull requests: auto
 	// (on its own when the gate allows), ask (every step waits) or off.
 	Tend string `json:"tend,omitempty"`
+	// Repos holds what the user set for one repository (owner/name),
+	// overriding the settings above.
+	Repos map[string]Repo `json:"repos,omitempty"`
+	// NotifyOff lists the kinds of desktop notification the user turned
+	// off (see the Notify* constants).
+	NotifyOff []string `json:"notify_off,omitempty"`
+	// Prices are what each model costs, used to estimate a cost when the
+	// agent reports tokens but no cost. Keyed by the model's name as the
+	// agent reports it.
+	Prices map[string]Price `json:"prices,omitempty"`
+}
+
+// Repo is the user's settings for one repository.
+type Repo struct {
+	// Off makes Docket leave the repository alone: its pull requests are not
+	// read, listed or worked on.
+	Off bool `json:"off,omitempty"`
+	// RunCode, when set, overrides Config.RunCode here.
+	RunCode *bool `json:"run_code,omitempty"`
+	// Tend, when set (auto, ask or off), overrides Config.Tend here.
+	Tend string `json:"tend,omitempty"`
+}
+
+// Price is a model's price in US dollars per million tokens.
+type Price struct {
+	Input      float64 `json:"input"`
+	Output     float64 `json:"output"`
+	CacheRead  float64 `json:"cache_read,omitempty"`
+	CacheWrite float64 `json:"cache_write,omitempty"`
+}
+
+// Kinds of desktop notification the user can turn off.
+const (
+	NotifyRead     = "read"     // a pull request was read and waits on the user
+	NotifyLane     = "lane"     // one of theirs became ready to merge, or started to need them
+	NotifyActivity = "activity" // someone reviewed or commented on one of theirs
+	NotifyTend     = "tend"     // the agent did steps on one of theirs, or holds one for them
+)
+
+// NotifyKinds lists every kind, in the order Settings shows them.
+var NotifyKinds = []string{NotifyRead, NotifyLane, NotifyActivity, NotifyTend}
+
+// Notifies reports whether notifications of kind are on.
+func (c Config) Notifies(kind string) bool {
+	for _, k := range c.NotifyOff {
+		if k == kind {
+			return false
+		}
+	}
+	return true
+}
+
+// RepoOff reports whether the user turned Docket off for repo (owner/name).
+func (c Config) RepoOff(repo string) bool { return c.Repos[repo].Off }
+
+// RunsIn reports whether the agent may execute code from repo.
+func (c Config) RunsIn(repo string) bool {
+	if r, ok := c.Repos[repo]; ok && r.RunCode != nil {
+		return *r.RunCode
+	}
+	return c.Runs()
+}
+
+// TendIn is the tend mode for repo: its own when set, else TendMode.
+func (c Config) TendIn(repo string) string {
+	switch t := c.Repos[repo].Tend; t {
+	case "auto", "ask", "off":
+		return t
+	}
+	return c.TendMode()
 }
 
 // TendMode is Tend with its default, auto.

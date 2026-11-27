@@ -125,3 +125,7 @@ func (e *Engine) waitSweep(key string) {
 		e.mu.Lock()
 	}
 }
+
+// Sweep removes review checkouts that no review needs any more: the ones
+// for pull requests that left the queue and for heads that were read again.
+func (e *Engine) Sweep(ctx context.Context) { e.sweep(ctx) }

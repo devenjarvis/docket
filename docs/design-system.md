@@ -96,6 +96,14 @@ Each has a class in `docket.css` and a rendered example in the style guide.
 **Code**
 - **Diff** (`.diff`): blue fill for added lines, grey and struck through for removed ones; `.hot` puts a red rule in the margin on the lines a decision is about.
 
+**Metrics and settings**
+- **Segmented** (`.seg`): one of a few choices, such as a period; the pressed one is filled ink.
+- **Chart** (`.chart`, `.colchart`): a framed detail with its title and legend in the strip on top. Stacked columns tell their series apart by texture: solid ink (`.f-ink`), hatched (`.f-hatch`), open (`.f-open`), so they read without hue and in print. The axis has four round steps; each column has a tooltip on hover and focus.
+- **Bars** (`.hbars`): labelled bars on one scale, ink; `.track.red` only for what was the reviewer's (time on decisions, steps the agent held for them).
+- **Named numbers** (`.kv`): a list of named figures, the figure in mono at the right.
+- **Setting** (`.setting`): what a setting is, on the left; its control on the right. With **Stepper** (`.stepper`) for a small range and **Chip** (`.chip`) for a list the user edits.
+- **Area map** (`.areas`, `.area.hm0`–`.hm4`): the parts of a repository, shaded in ink by how often the reviewer read them.
+
 **Feedback**
 - **Banner** (`.banner`, `.banner.red`): one sentence about the whole sheet. Pencil for information, red when you must know before acting.
 - **Conversation entry** (`.entry`, `.entry.on-you`): a review, comment or thread; a heavy red rule when the next move is yours.

@@ -30,13 +30,15 @@ func TestNewsAboutOwnPullRequests(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := news("me", base, &c.next)
+			lane, activity := news("me", base, &c.next)
+			got := strings.TrimSpace(lane + " " + activity)
 			if c.want == "" && got != "" || c.want != "" && !strings.Contains(got, c.want) {
 				t.Errorf("news = %q, want it to say %q", got, c.want)
 			}
 		})
 	}
-	if got := news("me", nil, base); got != "" {
+	if lane, activity := news("me", nil, base); lane+activity != "" {
+		got := lane + activity
 		t.Errorf("a pull request seen for the first time is not news: %q", got)
 	}
 }

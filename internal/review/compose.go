@@ -9,6 +9,7 @@ import (
 
 	"github.com/devenjarvis/docket/internal/diff"
 	"github.com/devenjarvis/docket/internal/gh"
+	"github.com/devenjarvis/docket/internal/ledger"
 	"github.com/devenjarvis/docket/internal/model"
 )
 
@@ -339,6 +340,7 @@ func (e *Engine) Post(ctx context.Context, key string, in PostInput) (string, er
 		}
 	}
 	touch(e.Home, r.PR.Owner+"/"+r.PR.Repo, Areas(read))
+	e.record(postEntry(*r, in.Event, in.Receipt))
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -348,4 +350,53 @@ func (e *Engine) Post(ctx context.Context, key string, in PostInput) (string, er
 		e.save(cur)
 	}
 	return url, nil
+}
+
+// postEntry is the ledger line for a review the user posted.
+func postEntry(r model.Review, event string, receipt bool) ledger.Entry {
+	sum := summarize(&r)
+	en := ledger.Entry{Kind: ledger.KindPost, Repo: r.PR.Owner + "/" + r.PR.Repo, Number: r.PR.Number, Event: event,
+		Agent: r.Agent, Model: r.Model, NeedLines: sum.NeedLines, TotalLines: sum.TotalLines, Decisions: sum.Decisions,
+		Answered: sum.Answered, Asks: len(r.Asks), Receipt: receipt, Time: map[string]int{}}
+	decisions, sections := map[string]model.Decision{}, map[string]bool{}
+	if b := r.Brief; b != nil {
+		for _, d := range b.Decisions {
+			decisions[d.ID] = d
+		}
+		for _, s := range b.Sections {
+			sections[s.ID] = true
+			if s.Kind == model.Mechanical {
+				en.Mechanical++
+				if r.Audited[s.ID] {
+					en.Audited++
+				}
+			}
+		}
+	}
+	for id, sec := range r.Seconds {
+		en.YourSeconds += sec
+		switch {
+		case id == "brief" || id == "context":
+			en.Time[id] += sec
+		case decisions[id].ID != "":
+			en.Time["decisions"] += sec
+		case sections[id]:
+			en.Time["diff"] += sec
+		}
+	}
+	for id, a := range r.Answers {
+		d, ok := decisions[id]
+		if !ok || a.Option == "" {
+			continue
+		}
+		if a.Comment != "" {
+			en.Edited++
+		}
+		for _, o := range d.Options {
+			if o.ID == a.Option && o.Effect == model.Blocking {
+				en.Blocking++
+			}
+		}
+	}
+	return en
 }

@@ -16,7 +16,7 @@ func startTend(t *testing.T, mode string) (*review.Engine, string) {
 	t.Helper()
 	return start(t, func(e *review.Engine, home string) {
 		e.Branches = demo.Checkout{Home: home}
-		e.TendMode = func() string { return mode }
+		e.TendMode = func(string) string { return mode }
 	})
 }
 
@@ -209,7 +209,7 @@ func TestSendingBackWithTheAgentOffDoesNotFail(t *testing.T) {
 	mode := "auto"
 	eng, _ := start(t, func(e *review.Engine, home string) {
 		e.Branches = demo.Checkout{Home: home}
-		e.TendMode = func() string { return mode }
+		e.TendMode = func(string) string { return mode }
 	})
 	ctx := context.Background()
 	if err := eng.Sync(ctx); err != nil {

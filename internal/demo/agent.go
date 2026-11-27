@@ -67,6 +67,21 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 	say := func(session, text string) {
 		update(session, map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": text}})
 	}
+	// finish ends a turn the way an agent that reports usage does: the
+	// session's running cost in a usage_update, and the turn's tokens on the
+	// prompt response (ACP's draft end-turn usage). The gate's small model
+	// reports tokens only, so Settings has something to price.
+	costs := map[string]float64{}
+	finish := func(session string, id json.RawMessage, job string) {
+		u := demoUsage[job]
+		res := map[string]any{"stopReason": "end_turn", "usage": u.tokens}
+		if u.cost > 0 {
+			costs[session] += u.cost
+			update(session, map[string]any{"sessionUpdate": "usage_update", "used": u.tokens["inputTokens"], "size": 200000,
+				"cost": map[string]any{"amount": costs[session], "currency": "USD"}})
+		}
+		send(frame{ID: id, Result: raw(res)})
+	}
 	tool := func(session string, n int, title, kind string) {
 		id := fmt.Sprintf("t%d", n)
 		update(session, map[string]any{"sessionUpdate": "tool_call", "toolCallId": id, "title": title, "kind": kind, "status": "in_progress"})
@@ -86,8 +101,11 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 			sessions++
 			send(frame{ID: f.ID, Result: raw(map[string]any{
 				"sessionId": fmt.Sprintf("demo-%d", sessions),
-				"models":    map[string]any{"currentModelId": "scripted", "availableModels": []map[string]string{{"modelId": "scripted", "name": "Scripted demo agent"}}},
+				"models": map[string]any{"currentModelId": "scripted", "availableModels": []map[string]string{
+					{"modelId": "scripted", "name": "Scripted demo agent"}, {"modelId": "scripted-small", "name": DemoSmallModel}}},
 			})})
+		case "session/set_model":
+			send(frame{ID: f.ID, Result: raw(map[string]any{})})
 		case "session/prompt":
 			var p struct {
 				SessionID string `json:"sessionId"`
@@ -103,7 +121,7 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 			prompt := sb.String()
 			if strings.HasPrefix(prompt, tend.GatePrefix) {
 				say(p.SessionID, gateAnswer(prompt))
-				send(frame{ID: f.ID, Result: raw(map[string]string{"stopReason": "end_turn"})})
+				finish(p.SessionID, f.ID, "gate")
 				continue
 			}
 			if strings.HasPrefix(prompt, tend.PromptPrefix) {
@@ -128,7 +146,7 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 				} else if _, msg := call("fs/write_text_file", map[string]any{"sessionId": p.SessionID, "path": filepath.Join(out, "plan.json"), "content": body}); msg != "" {
 					say(p.SessionID, "Could not write the plan: "+msg)
 				}
-				send(frame{ID: f.ID, Result: raw(map[string]string{"stopReason": "end_turn"})})
+				finish(p.SessionID, f.ID, "tend")
 				continue
 			}
 			if strings.HasPrefix(prompt, "A reviewer is reading") {
@@ -144,7 +162,7 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 					say(p.SessionID, part)
 					time.Sleep(step / 3)
 				}
-				send(frame{ID: f.ID, Result: raw(map[string]string{"stopReason": "end_turn"})})
+				finish(p.SessionID, f.ID, "ask")
 				continue
 			}
 			dir, out := dirsFromPrompt(prompt)
@@ -173,7 +191,7 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 			} else if _, msg := call("fs/write_text_file", map[string]any{"sessionId": p.SessionID, "path": filepath.Join(out, "brief.json"), "content": body}); msg != "" {
 				say(p.SessionID, "Could not write the brief: "+msg)
 			}
-			send(frame{ID: f.ID, Result: raw(map[string]string{"stopReason": "end_turn"})})
+			finish(p.SessionID, f.ID, "read")
 		default:
 			if len(f.ID) > 0 && f.Method != "" {
 				send(frame{ID: f.ID, Error: raw(map[string]any{"code": -32601, "message": "not supported by the demo agent"})})
@@ -239,4 +257,21 @@ func gateAnswer(prompt string) string {
 	default:
 		return `{"decision": "auto", "reason": "A rename the reviewer asked for, and nothing else."}`
 	}
+}
+
+// DemoSmallModel is the scripted agent's small model, which the gate picks.
+// It reports tokens and no cost; the demo's settings give it a price.
+const DemoSmallModel = "Scripted small model (mini)"
+
+type usage struct {
+	tokens map[string]int64
+	cost   float64
+}
+
+// demoUsage is what one turn of each job reports.
+var demoUsage = map[string]usage{
+	"read": {map[string]int64{"totalTokens": 61200, "inputTokens": 52000, "outputTokens": 9200, "cachedReadTokens": 148000}, 0.84},
+	"ask":  {map[string]int64{"totalTokens": 13400, "inputTokens": 12000, "outputTokens": 1400, "cachedReadTokens": 30000}, 0.16},
+	"tend": {map[string]int64{"totalTokens": 40500, "inputTokens": 34000, "outputTokens": 6500, "cachedReadTokens": 90000}, 0.52},
+	"gate": {map[string]int64{"totalTokens": 4300, "inputTokens": 4100, "outputTokens": 200}, 0},
 }

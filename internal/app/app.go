@@ -13,6 +13,7 @@ import (
 	"github.com/devenjarvis/docket/internal/config"
 	"github.com/devenjarvis/docket/internal/demo"
 	"github.com/devenjarvis/docket/internal/gh"
+	"github.com/devenjarvis/docket/internal/ledger"
 	"github.com/devenjarvis/docket/internal/repo"
 	"github.com/devenjarvis/docket/internal/review"
 	"github.com/devenjarvis/docket/internal/rules"
@@ -75,10 +76,19 @@ func Start(ctx context.Context, opts Options) (*App, error) {
 	if br, ok := prep.(repo.Brancher); ok {
 		eng.Branches = br
 	}
-	eng.TendMode = func() string {
+	eng.TendMode = func(repo string) string {
 		c, _ := config.Read()
-		return c.TendMode()
+		return c.TendIn(repo)
 	}
+	eng.RepoOff = func(repo string) bool {
+		c, _ := config.Read()
+		return c.RepoOff(repo)
+	}
+	eng.Notifies = func(kind string) bool {
+		c, _ := config.Read()
+		return c.Notifies(kind)
+	}
+	eng.Ledger = ledger.Open(home)
 	eng.Logf = logf
 	srv := server.New(eng, rs, home)
 	if opts.Demo {
@@ -89,11 +99,12 @@ func Start(ctx context.Context, opts Options) (*App, error) {
 		srv.Demo, srv.DemoAgent = true, fmt.Sprintf("%q fake-agent", self)
 	}
 	eng.Agent = srv.AgentCommand
-	eng.RunCode = func() bool {
+	eng.RunCode = func(repo string) bool {
 		c, _ := config.Read()
-		return c.Runs()
+		return c.RunsIn(repo)
 	}
 	c, _ := config.Read()
+	srv.StartedPoll, srv.StartedWorkers = c.Poll(), c.Workers()
 	eng.Start(ctx, c.Workers(), time.Duration(c.Poll())*time.Second)
 	return &App{Server: srv, Engine: eng, Home: home}, nil
 }

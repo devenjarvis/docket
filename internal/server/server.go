@@ -35,6 +35,10 @@ type Server struct {
 	DemoAgent string
 	// OpenURL opens a link in the user's browser. The desktop app sets it.
 	OpenURL func(url string)
+	// StartedPoll and StartedWorkers are the poll interval and the number
+	// of readers the engine was started with; a change takes effect at the
+	// next start.
+	StartedPoll, StartedWorkers int
 
 	mux *http.ServeMux
 }
@@ -85,6 +89,7 @@ func New(eng *review.Engine, rs *rules.Store, home string) *Server {
 	s.mux.HandleFunc("POST /api/tend", s.tend)
 	s.mux.HandleFunc("POST /api/decide", s.decide)
 	s.mux.HandleFunc("POST /api/undo", s.undo)
+	s.settingsRoutes()
 	return s
 }
 
@@ -148,12 +153,17 @@ func (s *Server) state(w http.ResponseWriter, _ *http.Request) {
 		"agents": agents.Detect(exec.LookPath, ""),
 		"config": map[string]any{
 			"agent": c.Agent, "agentCommand": c.AgentCommand, "pollSeconds": c.Poll(),
-			"theme": c.Theme, "receipt": c.Receipt(), "runCode": s.Eng.RunCode(), "tend": c.TendMode(),
+			"theme": c.Theme, "receipt": c.Receipt(), "runCode": c.Runs(), "tend": c.TendMode(),
+			"agentPath": nonNil(c.AgentPath), "concurrency": c.Workers(), "notifyOff": nonNil(c.NotifyOff),
+			"prices": c.Prices,
 		},
-		"rules": active,
-		"mine":  s.Eng.Mine(),
-		"demo":  s.Demo,
-		"home":  s.Home,
+		"notifyKinds": config.NotifyKinds,
+		// Poll and concurrency are read once, when Docket starts.
+		"started": map[string]int{"pollSeconds": s.StartedPoll, "concurrency": s.StartedWorkers},
+		"rules":   active,
+		"mine":    s.Eng.Mine(),
+		"demo":    s.Demo,
+		"home":    s.Home,
 	})
 }
 
@@ -392,13 +402,17 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	in, ok := read[struct {
-		Agent        *string `json:"agent"`
-		AgentCommand *string `json:"agentCommand"`
-		PollSeconds  *int    `json:"pollSeconds"`
-		Theme        *string `json:"theme"`
-		Receipt      *bool   `json:"receipt"`
-		RunCode      *bool   `json:"runCode"`
-		Tend         *string `json:"tend"`
+		Agent        *string                  `json:"agent"`
+		AgentCommand *string                  `json:"agentCommand"`
+		PollSeconds  *int                     `json:"pollSeconds"`
+		Theme        *string                  `json:"theme"`
+		Receipt      *bool                    `json:"receipt"`
+		RunCode      *bool                    `json:"runCode"`
+		Tend         *string                  `json:"tend"`
+		AgentPath    *[]string                `json:"agentPath"`
+		Concurrency  *int                     `json:"concurrency"`
+		NotifyOff    *[]string                `json:"notifyOff"`
+		Prices       *map[string]config.Price `json:"prices"`
 	}](w, r)
 	if !ok {
 		return
@@ -412,7 +426,42 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 		c.AgentCommand = strings.TrimSpace(*in.AgentCommand)
 	}
 	if in.PollSeconds != nil {
+		if *in.PollSeconds < 30 {
+			fail(w, 400, fmt.Errorf("check GitHub at most every 30 seconds"))
+			return
+		}
 		c.PollSeconds = *in.PollSeconds
+	}
+	if in.AgentPath != nil {
+		var dirs []string
+		for _, d := range *in.AgentPath {
+			if d = strings.TrimSpace(d); d != "" {
+				dirs = append(dirs, d)
+			}
+		}
+		c.AgentPath = dirs
+	}
+	if in.Concurrency != nil {
+		if *in.Concurrency < 1 || *in.Concurrency > 6 {
+			fail(w, 400, fmt.Errorf("read between 1 and 6 pull requests at once"))
+			return
+		}
+		c.Concurrency = *in.Concurrency
+	}
+	if in.NotifyOff != nil {
+		c.NotifyOff = *in.NotifyOff
+	}
+	if in.Prices != nil {
+		for m, p := range *in.Prices {
+			if p.Input < 0 || p.Output < 0 || p.CacheRead < 0 || p.CacheWrite < 0 {
+				fail(w, 400, fmt.Errorf("a price for %s is below zero", m))
+				return
+			}
+		}
+		c.Prices = *in.Prices
+		if len(c.Prices) == 0 {
+			c.Prices = nil
+		}
 	}
 	if in.Theme != nil {
 		c.Theme = *in.Theme
@@ -577,4 +626,11 @@ func (s *Server) undo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func nonNil(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
 }
