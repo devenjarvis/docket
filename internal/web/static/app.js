@@ -197,6 +197,15 @@ function settings() {
         "Let the agent build and run the pull request's code in its throwaway checkouts"),
       h("p.small.muted", { style: { maxWidth: "70ch" } }, "Running the code is what lets a claim be proved instead of argued, and it means code from the pull request executes on this computer. Turn it off for repositories whose authors you would not run code from; the agent then reads and searches only, and marks what it could not prove.")),
     h("div.block.rule-top",
+      h("h2.h2", "Your pull requests"),
+      h("p.lede", "When a reviewer comments or a check fails on a pull request you wrote, the agent can fix it, answer, and bring the branch up to date. It pushes new commits on top of your branch and never rewrites it."),
+      [["auto", "Act on its own when it is safe", "A small model checks each step. A rename a reviewer asked for goes ahead; a dependency change, a CI edit, a large diff or a reply that pushes back waits for you. Everything it did has an Undo."],
+       ["ask", "Always ask me first", "The agent plans every step, and none runs until you approve it."],
+       ["off", "Off", "The agent never works on your pull requests."]].map(([v, label, text]) =>
+        h("label.check", { style: { alignItems: "flex-start" } },
+          h("input", { type: "radio", name: "tend", checked: (c.tend || "auto") === v, onchange: () => save({ tend: v }) }),
+          h("span", h("b", label), h("div.small.muted", { style: { maxWidth: "70ch" } }, text))))),
+    h("div.block.rule-top",
       h("h2.h2", "Reviews"),
       h("label.check", h("input", { type: "checkbox", checked: c.receipt, onchange: (e) => save({ receipt: e.target.checked }) }),
         "Include the attention receipt in the review I post (what I read, what I took on the agent's proof)"),
@@ -245,6 +254,11 @@ function connect() {
     if (e.type === "mine") {
       const r = S.route.name;
       if (r === "queue" || r === "mine" || (r === "minepr" && (!e.key || e.key === S.route.key))) refresh();
+      return;
+    }
+    if (e.type === "tend") {
+      const el = document.querySelector(`[data-tend="${CSS.escape(e.key)}"]`);
+      if (el) el.textContent = e.text;
       return;
     }
     if (e.type === "conversation") {

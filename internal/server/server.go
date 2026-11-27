@@ -82,6 +82,9 @@ func New(eng *review.Engine, rs *rules.Store, home string) *Server {
 	s.mux.HandleFunc("GET /api/conversation", s.conversation)
 	s.mux.HandleFunc("GET /api/log", s.failedLog)
 	s.mux.HandleFunc("POST /api/act", s.act)
+	s.mux.HandleFunc("POST /api/tend", s.tend)
+	s.mux.HandleFunc("POST /api/decide", s.decide)
+	s.mux.HandleFunc("POST /api/undo", s.undo)
 	return s
 }
 
@@ -145,7 +148,7 @@ func (s *Server) state(w http.ResponseWriter, _ *http.Request) {
 		"agents": agents.Detect(exec.LookPath, ""),
 		"config": map[string]any{
 			"agent": c.Agent, "agentCommand": c.AgentCommand, "pollSeconds": c.Poll(),
-			"theme": c.Theme, "receipt": c.Receipt(), "runCode": s.Eng.RunCode(),
+			"theme": c.Theme, "receipt": c.Receipt(), "runCode": s.Eng.RunCode(), "tend": c.TendMode(),
 		},
 		"rules": active,
 		"mine":  s.Eng.Mine(),
@@ -395,6 +398,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 		Theme        *string `json:"theme"`
 		Receipt      *bool   `json:"receipt"`
 		RunCode      *bool   `json:"runCode"`
+		Tend         *string `json:"tend"`
 	}](w, r)
 	if !ok {
 		return
@@ -418,6 +422,15 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.RunCode != nil {
 		c.RunCode = in.RunCode
+	}
+	if in.Tend != nil {
+		switch *in.Tend {
+		case "auto", "ask", "off":
+			c.Tend = *in.Tend
+		default:
+			fail(w, 400, fmt.Errorf("tend must be auto, ask or off"))
+			return
+		}
 	}
 	if err := config.Write(c); err != nil {
 		fail(w, 500, err)
@@ -511,6 +524,55 @@ func (s *Server) act(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
 	defer cancel()
 	if err := s.Eng.Act(ctx, in.Key, in.Action); err != nil {
+		fail(w, 400, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) tend(w http.ResponseWriter, r *http.Request) {
+	in, ok := read[keyed](w, r)
+	if !ok {
+		return
+	}
+	if err := s.Eng.Tend(in.Key); err != nil {
+		fail(w, 400, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
+	in, ok := read[struct {
+		Key    string `json:"key"`
+		Action string `json:"action"`
+		Choice string `json:"choice"`
+		Body   string `json:"body"`
+		Note   string `json:"note"`
+	}](w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	if err := s.Eng.Decide(ctx, in.Key, in.Action, in.Choice, in.Body, in.Note); err != nil {
+		fail(w, 400, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) undo(w http.ResponseWriter, r *http.Request) {
+	in, ok := read[struct {
+		Key    string `json:"key"`
+		Action string `json:"action"`
+	}](w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	if err := s.Eng.Undo(ctx, in.Key, in.Action); err != nil {
 		fail(w, 400, err)
 		return
 	}

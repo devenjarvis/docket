@@ -109,3 +109,25 @@ func TestActRoutes(t *testing.T) {
 		t.Errorf("confirmed merge: %d %s", code, body)
 	}
 }
+
+func TestTendRoutes(t *testing.T) {
+	ts := serve(t)
+	if code, body := postJSON(t, ts, "/api/decide", map[string]any{"key": demo.BlockedKey, "action": "a1", "choice": "explode"}); code != 400 {
+		t.Errorf("unknown choice: %d %s", code, body)
+	}
+	if code, body := postJSON(t, ts, "/api/settings", map[string]any{"tend": "sometimes"}); code != 400 {
+		t.Errorf("a bad tend mode was saved: %d %s", code, body)
+	}
+	if code, body := postJSON(t, ts, "/api/settings", map[string]any{"tend": "ask"}); code != 200 {
+		t.Fatalf("settings: %d %s", code, body)
+	}
+	var st struct {
+		Config struct {
+			Tend string `json:"tend"`
+		} `json:"config"`
+	}
+	getJSON(t, ts, "/api/state", &st)
+	if st.Config.Tend != "ask" {
+		t.Errorf("tend mode = %q, want ask", st.Config.Tend)
+	}
+}

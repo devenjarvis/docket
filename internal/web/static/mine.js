@@ -5,6 +5,7 @@
 import { h, get, toast, ago, openExternal } from "./dom.js";
 import { renderConversation, act } from "./conversation.js";
 import { refresh } from "./app.js";
+import { renderTend, tendStatus } from "./tend.js";
 
 export function mineHref(key) {
   const m = key.match(/^(.+)\/(.+)#(\d+)$/);
@@ -30,7 +31,8 @@ export function renderMineList(S) {
       onkeydown: (e) => { if (e.key === "Enter") location.hash = mineHref(p.owner + "/" + p.repo + "#" + p.number); } },
       h("td", h("div.mono.small.muted", `${p.owner}/${p.repo} #${p.number}`),
         h("div", { style: { fontWeight: 700, fontSize: "15px" } }, p.title),
-        h("div.small.muted", (m.blockers || []).map((b) => b.text).join(" ") || "Ready to merge.")),
+        h("div.small.muted", (m.blockers || []).map((b) => b.text).join(" ") || "Ready to merge."),
+        tendStatus(m) && h("div.small", { style: { marginTop: "2px" } }, tendStatus(m))),
       h("td.num", total ? `${total - failing} of ${total}` : "none"),
       h("td.num", open || ""),
       h("td.r.small.muted", ago(p.updatedAt)));
@@ -166,6 +168,7 @@ export function renderMine(S) {
         h("div.main",
           h("div.row", { style: { alignItems: "center", gap: "12px" } }, h("h1.title", { style: { margin: 0 } }, p.title), h("span.stamp" + laneCls, lane)),
           h("div.block", h("h2.h2", "What stands in the way"), blockers),
+          h("div.block.rule-top", renderTend(S)),
           h("div.block.rule-top", h("h2.h2", "Checks"), checks(m)),
           h("div.block.rule-top", renderConversation(key, m.conversation, S.st.queue.viewer, p.author, () => refresh(true)))),
         h("div.side.wide", controls(m)))));

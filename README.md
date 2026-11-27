@@ -35,6 +35,16 @@ The Yours tab lists every open pull request you wrote, sorted by whose move it i
 
 From there you merge (with one confirmation, and only with the methods the repository allows), turn on GitHub's auto-merge, update the branch, mark a draft ready, ask for review, re-run failed jobs, and answer every thread. Docket notifies you when one becomes ready to merge, starts to need you, or gets a review or comment from someone else.
 
+### The agent works on them
+
+Press **Let the agent work on it** on one of your pull requests, and your agent checks out the branch, reads the threads and the failed logs, and plans steps: a commit for what a reviewer asked or what broke a check, a reply, a resolve, a branch update, a re-run, or a merge of the base branch. After that first run, Docket starts it on its own when a reviewer comments or a check fails, and stops after three such runs in a row until you approve, send back or undo a step, or start a run yourself.
+
+Each step goes through a gate before it runs. Fixed rules hold a step for you when it touches dependency manifests or lockfiles, toolchain versions, CI configuration, deletes or skips tests, changes more than 60 lines, resolves conflicts, or replies with anything but agreement or plain information. Every other step goes to a second session of the same agent, on its smallest model, which decides whether it is safe to do alone. A rename a reviewer asked for goes ahead; a change to how something starts up waits.
+
+Steps that go ahead push to your branch as new commits on top, never with force. If you pushed in the meantime, the push fails and nothing is lost. Steps that wait show as cards with the diff or the reply text and the gate's reason: push or post it (you can edit a reply first), or send it back with a note the agent plans again with. Everything the agent did has an Undo: a revert commit on top, a deleted reply, or a reopened thread.
+
+Settings has three choices: act on its own when it is safe (the default), always ask first, or off.
+
 ## What you should know before trusting it
 
 - **The agent runs the pull request's code on your computer.** That is what lets a claim be proved. Turn it off in Settings for repositories whose authors you would not run code from; the agent then only reads and searches.
@@ -50,11 +60,12 @@ Everything is under `~/.docket` (`DOCKET_HOME` to move it):
 |---|---|
 | `rules/` | Your rulebook: one Markdown file per rule, `stats.json`, and a git history of every change |
 | `state/` | One JSON file per review: the brief, your answers, your time |
-| `state/mine/` | One JSON file per pull request of yours: merge state, checks, conversation |
+| `state/mine/` | One JSON file per pull request of yours: merge state, checks, conversation, and the agent's last run |
+| `tend/<owner>/<repo>/<n>/<sha>/` | The agent's checkouts of your branches |
 | `reviews/<owner>/<repo>/<n>/<sha>/` | The checkouts, the diff, the agent's probes (`out/`) |
 | `repos/` | Blobless bare clones |
 | `map.json` | Which parts of which repositories you have reviewed, and when |
-| `config.json` | Agent, poll interval, run-code and receipt settings |
+| `config.json` | Agent, poll interval, run-code, receipt and agent-on-your-pull-requests settings |
 
 ## Layout
 

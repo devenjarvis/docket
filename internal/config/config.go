@@ -30,6 +30,18 @@ type Config struct {
 	// RunCode lets the agent execute the pull request's code in its
 	// throwaway checkouts. On unless set to false.
 	RunCode *bool `json:"run_code,omitempty"`
+	// Tend is how the agent works on the user's own pull requests: auto
+	// (on its own when the gate allows), ask (every step waits) or off.
+	Tend string `json:"tend,omitempty"`
+}
+
+// TendMode is Tend with its default, auto.
+func (c Config) TendMode() string {
+	switch c.Tend {
+	case "ask", "off":
+		return c.Tend
+	}
+	return "auto"
 }
 
 func (c Config) Poll() int {

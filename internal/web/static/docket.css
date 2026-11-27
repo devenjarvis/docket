@@ -249,6 +249,7 @@ pre.code.out { border-left: 1px dashed var(--pencil); color: var(--text-2); }
 .diff .ln.del > .tx { text-decoration: line-through; text-decoration-thickness: 1px; }
 .diff .ln > .mk { border-left: var(--heavy) solid transparent; }
 .diff .ln.hot > .mk { border-left-color: var(--red); }
+.diff.patch .ln { grid-template-columns: 1fr; padding: 0 calc(var(--u) * 1.5); }
 .diff .gap { padding: 2px calc(var(--u) * 1.5); color: var(--text-3); font: 12px/1.6 var(--mono); border-top: 1px dashed var(--hair); border-bottom: 1px dashed var(--hair); }
 
 /* --- attention bar: where the changed lines go ----------------------------- */
