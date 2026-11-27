@@ -30,9 +30,9 @@ export function renderMineList(S) {
     return h("tr.go", { onclick: () => { location.hash = mineHref(p.owner + "/" + p.repo + "#" + p.number); }, tabindex: 0,
       onkeydown: (e) => { if (e.key === "Enter") location.hash = mineHref(p.owner + "/" + p.repo + "#" + p.number); } },
       h("td", h("div.mono.small.muted", `${p.owner}/${p.repo} #${p.number}`),
-        h("div", { style: { fontWeight: 700, fontSize: "15px" } }, p.title),
+        h("div", { class: "item-title" }, p.title),
         h("div.small.muted", (m.blockers || []).map((b) => b.text).join(" ") || "Ready to merge."),
-        tendStatus(m) && h("div.small", { style: { marginTop: "2px" } }, tendStatus(m))),
+        tendStatus(m) && h("div.small", { class: "mt-s" }, tendStatus(m))),
       h("td.num", total ? `${total - failing} of ${total}` : "none"),
       h("td.num", open || ""),
       h("td.r.small.muted", ago(p.updatedAt)));
@@ -41,8 +41,8 @@ export function renderMineList(S) {
     const list = mine.filter((m) => m.lane === lane);
     if (!list.length) return null;
     return h("div.block",
-      h("div.row", { style: { alignItems: "baseline", justifyContent: "space-between" } }, h("h2.h2", `${title} · ${list.length}`), h("span.small.muted", sub)),
-      h("div.scroll-x", h("table.reg",
+      h("div.row", { class: "spread base" }, h("h2.h2", `${title} · ${list.length}`), h("span.small.muted", sub)),
+      h("div.scroll-x", h("table.reg.lanes",
         h("thead", h("tr", h("th", "Pull request"), h("th", "Checks passing"), h("th", "Open threads"), h("th.r", ""))),
         h("tbody", list.map(row)))));
   });
@@ -102,7 +102,7 @@ function checks(m) {
   }
   return h("div",
     h("div.scroll-x", h("table.reg", h("tbody", rows))),
-    runs.length > 0 && h("div.row", { style: { marginTop: "8px" } },
+    runs.length > 0 && h("div.row", { class: "mt" },
       runs.map((run) => h("button.btn.small", { onclick: async () => { if (await act(key, { kind: "rerun", run })) refresh(true); } }, "Re-run failed jobs"))));
 }
 
@@ -111,9 +111,9 @@ function controls(m) {
   const key = m.pr.owner + "/" + m.pr.repo + "#" + m.pr.number, st = m.state, p = m.pr;
   const methods = st.methods || [];
   const ready = (m.blockers || []).length === 0;
-  const pick = h("select.field", { "aria-label": "Merge method", style: { width: "auto" } },
+  const pick = h("select.field", { "aria-label": "Merge method", class: "w-auto" },
     methods.map((x) => h("option", { value: x, selected: x === "SQUASH" || null }, { MERGE: "Merge commit", SQUASH: "Squash and merge", REBASE: "Rebase and merge" }[x] || x)));
-  const confirmRow = h("div.row.hidden", { style: { alignItems: "center", gap: "8px" } });
+  const confirmRow = h("div.row.hidden", { class: "mid gap-u" });
   const mergeBtn = h("button.btn.red", {
     disabled: !ready || !methods.length,
     title: ready ? "" : "Merging opens once nothing blocks it",
@@ -131,17 +131,17 @@ function controls(m) {
   const doit = (action, msg) => async () => { if (await act(key, action)) { if (msg) toast(msg); refresh(true); } };
   return h("div.yours",
     h("span.label", "Your move"),
-    h("div.row", { style: { alignItems: "center", gap: "8px" } }, pick, mergeBtn,
+    h("div.row", { class: "mid gap-u" }, pick, mergeBtn,
       st.autoMergeAllowed && !ready && (st.autoMerge
         ? h("button.btn", { onclick: doit({ kind: "auto-merge", on: false }, "Auto-merge is off.") }, "Turn off auto-merge")
         : h("button.btn", { onclick: () => doit({ kind: "auto-merge", on: true, method: pick.value }, "GitHub will merge it once nothing blocks it.")() }, "Merge when ready"))),
     st.autoMerge && h("p.small.muted", `Auto-merge is on (${st.autoMerge.toLowerCase()}): GitHub merges it once nothing blocks it.`),
     confirmRow,
-    h("div.row", { style: { gap: "8px", marginTop: "8px" } },
+    h("div.row", { class: "gap-u mt" },
       p.draft && h("button.btn", { onclick: doit({ kind: "ready" }, "Marked ready for review.") }, "Mark ready for review"),
       has("behind") && h("button.btn", { onclick: doit({ kind: "update-branch" }, "Branch updated from base.") }, "Update branch from base"),
       has("conflicts") && h("span.small.muted", "The conflicts have to be resolved in a checkout of the branch.")),
-    h("div.row", { style: { gap: "8px", marginTop: "8px", flexWrap: "nowrap" } }, who,
+    h("div.row", { class: "one-line gap-u mt" }, who,
       h("button.btn", { onclick: () => doit({ kind: "request-review", logins: who.value.split(",").map((s) => s.trim()).filter(Boolean) }, "Review requested.")() }, "Ask for review")));
 }
 
@@ -157,7 +157,7 @@ export function renderMine(S) {
     cell("Head", (p.headSha || "").slice(0, 7)),
     cell("Checked", ago(m.fetchedAt)));
   const blockers = (m.blockers || []).length
-    ? h("ul", { style: { margin: 0, paddingLeft: "20px" } }, m.blockers.map((b) => h("li", { style: { color: b.onYou ? "var(--red)" : "var(--text-2)", marginBottom: "4px" } }, b.text)))
+    ? h("ul", { class: "list" }, m.blockers.map((b) => h("li.mb" + (b.onYou ? ".text-red" : ".text-2"), b.text)))
     : h("p", "Nothing blocks it. It can merge now.");
   return h("div.sheet", head,
     h("nav.sheets", { "aria-label": "Pull request" },
@@ -166,7 +166,7 @@ export function renderMine(S) {
     h("div.body",
       h("div.cols",
         h("div.main",
-          h("div.row", { style: { alignItems: "center", gap: "12px" } }, h("h1.title", { style: { margin: 0 } }, p.title), h("span.stamp" + laneCls, lane)),
+          h("div.row", { class: "mid gap-m" }, h("h1.title", { class: "m0" }, p.title), h("span.stamp" + laneCls, lane)),
           h("div.block", h("h2.h2", "What stands in the way"), blockers),
           h("div.block.rule-top", renderTend(S)),
           h("div.block.rule-top", h("h2.h2", "Checks"), checks(m)),

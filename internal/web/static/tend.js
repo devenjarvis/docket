@@ -56,7 +56,7 @@ function threadLine(m, id) {
   const t = threadOf(m, id);
   if (!t) return null;
   const last = (t.comments || [])[t.comments.length - 1];
-  return h("div.small.muted", { style: { marginTop: "4px" } },
+  return h("div.small.muted", { class: "mt-s" },
     h("span.mono", t.path + (t.line ? ":" + t.line : "")),
     last && [" · ", h("b", last.author), ": ", (last.body || "").slice(0, 160)]);
 }
@@ -65,21 +65,21 @@ function verdictLine(a) {
   const v = a.verdict;
   if (!v) return null;
   const by = v.floor ? "a fixed rule" : v.model ? `the gate on ${v.model}` : "the gate";
-  return h("div.small", { style: { marginTop: "6px" } },
+  return h("div.small", { class: "mt" },
     h("b", v.decision === "auto" ? "Safe to do alone: " : "Held for you: "), v.reason, h("span.muted", ` (${by})`));
 }
 
 function card(key, m, a) {
   const body = a.kind === "reply" ? h("textarea.field", { rows: 4, "aria-label": "Reply text" }, a.body || "") : null;
   const note = h("input.field", { placeholder: "What should it do instead?", "aria-label": "Note for the agent" });
-  const back = h("div.row.hidden", { style: { gap: "8px", flexWrap: "nowrap", marginTop: "8px" } }, note,
+  const back = h("div.row.hidden", { class: "one-line gap-u mt" }, note,
     h("button.btn", { onclick: (ev) => send("/api/decide", { key, action: a.id, choice: "send-back", note: note.value }, "Sent back. The agent plans again with your note.", ev) }, "Send back"));
-  return h("div.block", { style: { border: "2px solid var(--red)", padding: "12px", marginBottom: "12px" } },
-    h("div.row", { style: { alignItems: "baseline", gap: "8px" } }, h("span.stamp.red", KIND[a.kind] || a.kind), h("span", prose(a.why))),
+  return h("div.block", { class: "held" },
+    h("div.row", { class: "base gap-u" }, h("span.stamp.red", KIND[a.kind] || a.kind), h("span", prose(a.why))),
     a.thread && threadLine(m, a.thread),
     verdictLine(a),
-    a.kind === "reply" ? h("div", { style: { marginTop: "8px" } }, body) : patchView(a.patch),
-    h("div.row", { style: { gap: "8px", marginTop: "8px" } },
+    a.kind === "reply" ? h("div", { class: "mt" }, body) : patchView(a.patch),
+    h("div.row", { class: "gap-u mt" },
       h("button.btn.primary", { onclick: (ev) => send("/api/decide", { key, action: a.id, choice: "approve", body: body ? body.value : "" },
         a.kind === "fix" || a.kind === "merge-base" ? "Pushed." : "Done.", ev) }, a.kind === "reply" ? "Post reply" : a.kind === "fix" || a.kind === "merge-base" ? "Push it" : "Do it"),
       h("button.btn.quiet", { onclick: () => { back.classList.toggle("hidden"); note.focus(); } }, "Send back…")),
@@ -91,7 +91,7 @@ function logRow(key, m, a) {
   const open = h("details", h("summary.small", "Show what it changed"), patchView(a.patch));
   return h("tr",
     h("td", h("b", KIND[a.kind] || a.kind), h("div.small", prose(a.why)),
-      a.kind === "reply" && a.body && h("div.small.muted", { style: { whiteSpace: "pre-wrap", marginTop: "4px" } }, a.body),
+      a.kind === "reply" && a.body && h("div.small.muted", { class: "prewrap mt-s" }, a.body),
       a.thread && threadLine(m, a.thread),
       a.result && h("div.small.muted", a.result),
       a.patch && open),
@@ -124,7 +124,7 @@ export function renderTend(S) {
   }, t ? "Run the agent again" : "Let the agent work on it");
   const modeLine = { auto: "It acts on its own when a step is safe, and asks you about the rest.", ask: "Every step waits for you.", off: "It is off. Turn it on in Settings." }[mode];
 
-  const head = h("div.row", { style: { alignItems: "baseline", justifyContent: "space-between" } },
+  const head = h("div.row", { class: "spread base" },
     h("h2.h2", "The agent"), start);
   if (!t) {
     return h("div.block", head,
@@ -141,13 +141,13 @@ export function renderTend(S) {
     t.status === "failed" && h("div.banner.red", h("b", "The run failed: "), t.error),
     t.summary && h("p.lede", prose(t.summary)),
     (t.notes || []).length > 0 && h("p.small.muted", "Your notes for this run: " + t.notes.join(" · ")),
-    waiting.length > 0 && h("div", { style: { marginTop: "12px" } },
+    waiting.length > 0 && h("div", { class: "mt-l" },
       h("div.label", `Waiting for you · ${waiting.length}`),
       waiting.map((a) => card(key, m, a))),
-    log.length > 0 && h("div", { style: { marginTop: "12px" } },
+    log.length > 0 && h("div", { class: "mt-l" },
       h("div.label", "What it did"),
       h("div.scroll-x", h("table.reg", h("tbody", log.map((a) => logRow(key, m, a)))))),
-    earlier.length > 0 && h("details", { style: { marginTop: "12px" } },
+    earlier.length > 0 && h("details", { class: "mt-l" },
       h("summary.label", `Earlier runs · ${earlier.length} ${earlier.length === 1 ? "step" : "steps"}`),
       h("div.scroll-x", h("table.reg", h("tbody", earlier.map((a) => logRow(key, m, a)))))),
     !running && !actions.length && t.status === "ready" && h("p", "The agent found nothing it could do."));

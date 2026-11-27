@@ -76,7 +76,7 @@ export function renderReview(S) {
 
   const tabs = b && h("nav.sheets", { "aria-label": "Sheets" },
     list.map((s) => h("a", { href: href(v.key, s.sheet, s.id), "aria-current": s === list[i] ? "page" : null, title: s.decision ? s.decision.title : null },
-      s.decision ? [tri(s.n, !!(v.answers[s.id] && v.answers[s.id].option)), h("span", { style: { maxWidth: "16ch", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textTransform: "none", fontFamily: "var(--body)", letterSpacing: 0, fontSize: "13px" } }, s.decision.title)] : s.label)),
+      s.decision ? [tri(s.n, !!(v.answers[s.id] && v.answers[s.id].option)), h("span", { class: "tab-title" }, s.decision.title)] : s.label)),
     h("span.spacer"),
     h("a", { href: p.url || "#", target: "_blank", rel: "noreferrer", onclick: openExternal }, "On GitHub"));
 
@@ -101,7 +101,7 @@ export function renderReview(S) {
 function pager(v, list, i) {
   const prev = list[i - 1], next = list[i + 1];
   const name = (s) => s.decision ? `Decision ${s.n}` : s.label;
-  return h("div.row.rule-top", { style: { justifyContent: "space-between", alignItems: "center" } },
+  return h("div.row.rule-top", { class: "spread mid" },
     prev ? h("a.btn.quiet", { href: href(v.key, prev.sheet, prev.id) }, "← " + name(prev)) : h("span"),
     h("span.small.muted", h("span.kbd", "←"), " ", h("span.kbd", "→"), " move between sheets"),
     next ? h("a.btn.primary", { href: href(v.key, next.sheet, next.id) }, name(next) + " →") : h("span"));
@@ -135,7 +135,7 @@ function brief(v, list) {
       h("div.block",
         h("h1.title", v.pr.title),
         h("p.lede", prose(b.summary)),
-        h("div.row", { style: { alignItems: "center" } },
+        h("div.row", { class: "mid" },
           h("a.btn.primary", { href: href(v.key, first.sheet, first.id) }, first.sheet === "context" ? "Start with the context" : first.decision ? "Start with decision 1" : "Read the diff"),
           h("span.small.muted", sum.decisions ? `${plural(sum.decisions, "decision")}, about ${Math.max(sum.minutes, 1)} min` : "No decisions for you"))),
 
@@ -143,7 +143,7 @@ function brief(v, list) {
         h("div.label.ink", `Where the ${total} changed lines go`),
         h("div.attn", { role: "img", "aria-label": `${by("judgment")} lines need you, ${by("skim")} verified, ${by("mechanical")} mechanical` },
           b.sections.map((s) => h("div.fill-" + s.kind, { style: { flex: `${Math.max(s.lines, 1)} 0 0` }, title: `${s.title}: ${s.lines} lines` }))),
-        h("div.row.small", { style: { gap: "8px 24px" } },
+        h("div.row.small", { class: "gap-2d" },
           h("span", h("span.key-sw.fill-judgment"), `Needs you: ${by("judgment")}`),
           h("span", h("span.key-sw.fill-skim"), `Verified, worth a skim: ${by("skim")}`),
           h("span", h("span.key-sw.fill-mechanical"), `Mechanical, proven: ${by("mechanical")}`))),
@@ -153,9 +153,9 @@ function brief(v, list) {
         h("div.scroll-x", h("table.reg", h("tbody", (b.claims || []).map((c) => {
           const [word, cls] = CLAIM[c.status] || [c.status, ""];
           return h("tr",
-            h("td", { style: { width: "1%" } }, h("span.stamp" + cls, word)),
-            h("td", h("div", { style: { fontWeight: 700 } }, prose(c.text)), h("div.small.muted", prose(c.evidence))),
-            h("td.r", { style: { width: "1%", whiteSpace: "nowrap" } }, c.decision && decN(c.decision) ? h("a", { href: href(v.key, "d", c.decision), style: { display: "inline-flex", gap: "6px", alignItems: "center" } }, tri(decN(c.decision), !!(v.answers[c.decision] || {}).option), "your call") : ""));
+            h("td", { class: "fit" }, h("span.stamp" + cls, word)),
+            h("td", h("div", { class: "strong" }, prose(c.text)), h("div.small.muted", prose(c.evidence))),
+            h("td.r", { class: "fit nowrap" }, c.decision && decN(c.decision) ? h("a", { href: href(v.key, "d", c.decision), class: "tri-link" }, tri(decN(c.decision), !!(v.answers[c.decision] || {}).option), "your call") : ""));
         })))),
         !(b.claims || []).length && h("p.muted", "The description makes no checkable claims.")),
 
@@ -165,8 +165,8 @@ function brief(v, list) {
           h("thead", h("tr", h("th", ""), h("th", "Part"), h("th", "How it was covered"), h("th.r", "Lines"))),
           h("tbody", b.sections.map((s, i) => h("tr.go", { onclick: () => go(href(v.key, "diff") + "/" + s.id) },
             h("td.num", i + 1),
-            h("td", h("div", { style: { fontWeight: 700 } }, s.title), h("div.small.muted.mono", s.files.map((f) => f.path).join(", "))),
-            h("td.small", s.kind === "judgment" ? h("span.stamp.red", "Needs you") : [h("span.stamp" + (s.kind === "mechanical" ? ".faint" : ".open"), KIND[s.kind]), h("div.muted", { style: { marginTop: "4px" } }, prose(s.proof))]),
+            h("td", h("div", { class: "strong" }, s.title), h("div.small.muted.mono", s.files.map((f) => f.path).join(", "))),
+            h("td.small", s.kind === "judgment" ? h("span.stamp.red", "Needs you") : [h("span.stamp" + (s.kind === "mechanical" ? ".faint" : ".open"), KIND[s.kind]), h("div.muted", { class: "mt-s" }, prose(s.proof))]),
             h("td.r.num", s.lines)))))))),
 
     h("div.side",
@@ -179,22 +179,22 @@ function brief(v, list) {
         (b.ruleHits || []).length ? b.ruleHits.map((r) => {
           const rule = v.rules[r.rule];
           return h("div.small", { style: { display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 10px" } },
-            h("span.stamp" + (r.result === "violated" ? ".red" : r.result === "passed" ? "" : ".open"), { style: { alignSelf: "start" } }, r.rule === "repo" ? "Repo" : r.rule),
-            h("div", rule ? h("div", { style: { fontWeight: 700 } }, rule.text) : r.rule === "repo" ? h("div", { style: { fontWeight: 700 } }, "The repository's own conventions") : null,
+            h("span.stamp" + (r.result === "violated" ? ".red" : r.result === "passed" ? "" : ".open"), { class: "self-start" }, r.rule === "repo" ? "Repo" : r.rule),
+            h("div", rule ? h("div", { class: "strong" }, rule.text) : r.rule === "repo" ? h("div", { class: "strong" }, "The repository's own conventions") : null,
               h("div.muted", prose(r.note))));
         }) : h("div.small.muted", "None of your rules applies to this change."),
         h("a.small", { href: "#/rules" }, "Open the rulebook")),
       (b.uncovered || []).length ? h("div.block",
         h("div.label.ink", "Nothing looked at"),
-        h("ul.small", { style: { margin: 0, paddingLeft: "18px" } }, b.uncovered.map((u) => h("li", prose(u))))) : null,
+        h("ul.small", { class: "list" }, b.uncovered.map((u) => h("li", prose(u))))) : null,
       h("div.pencil",
         h("div.label", `What ${v.agent || "the agent"} did`),
         h("div.small", { style: { display: "grid", gridTemplateColumns: "1fr auto", gap: "4px 12px" } },
           (b.work || []).map((w) => [h("span", prose(w.did)), h("span.mono.muted", w.result)])),
-        h("div.small.muted", { style: { marginTop: "8px" } },
+        h("div.small.muted", { class: "mt" },
           `${v.model || ""}${v.readTookSeconds ? ` · took ${clock(v.readTookSeconds)}` : ""} · ${ago(v.readAt)}. It gives no verdict.`,
           v.isolation === "soft" ? " It used its own tools, so Docket's directory limits were not enforced." : ""),
-        h("button.btn.quiet.small", { style: { marginTop: "8px" }, onclick: () => post("/api/reread", { key: v.key }).then(() => refresh(true)) }, "Read it again"))));
+        h("button.btn.quiet.small", { class: "mt", onclick: () => post("/api/reread", { key: v.key }).then(() => refresh(true)) }, "Read it again"))));
 }
 
 // --- context ---------------------------------------------------------------------
@@ -212,7 +212,7 @@ function context(v) {
     h("div.side",
       h("div.block", h("div.label.ink", "Your map of this repository"),
         (v.areas || []).map((a) => h("div.small",
-          h("div.row", { style: { justifyContent: "space-between", gap: "8px" } }, h("span.mono", a.area), h("span.muted", a.reviews ? `${plural(a.reviews, "review")}, ${ago(a.last)}` : "not reviewed here")),
+          h("div.row", { class: "spread gap-u" }, h("span.mono", a.area), h("span.muted", a.reviews ? `${plural(a.reviews, "review")}, ${ago(a.last)}` : "not reviewed here")),
           h("div.bar", h("i", { style: { width: Math.min(100, (a.reviews || 0) * 12) * freshness(a.last) + "%" } })))),
         h("p.small.muted", "Counted from reviews you signed in Docket. It fades with time, so this page covers what you have lost or never had.")),
       h("div.pencil", h("div.label", `Built from ${plural((c.sources || []).length, "source")}`),
@@ -245,7 +245,7 @@ function diffBlock(fd) {
 function fullDiff(v) {
   const b = v.brief, want = location.hash.split("/")[6];
   setTimeout(() => { const el = want && document.querySelector(`[data-section="${want}"]`); if (el) el.scrollIntoView(); }, 0);
-  return h("div.block", { style: { gap: "40px" } },
+  return h("div.block", { class: "gap-xl" },
     h("div.block", h("h1.title", "The whole change, in reading order"),
       h("p.lede", "Sections that need you are open. The rest are closed with the agent's proof on the lid; open one to skim it, or spot-check a hunk to keep the proof honest.")),
     b.sections.map((s, i) => {
@@ -259,7 +259,7 @@ function fullDiff(v) {
           h("label.check", h("input", { type: "checkbox", checked: !!v.audited[s.id], onchange: (e) => post("/api/audit", { key: v.key, section: s.id, done: e.target.checked }) }),
             "I checked this hunk and the proof holds for it")));
       };
-      const lid = h("div.row", { style: { alignItems: "baseline", gap: "12px" } },
+      const lid = h("div.row", { class: "base gap-m" },
         h("span.num.muted", i + 1),
         h("div.grow", h("h2.h2", s.title), h("div.small.muted", prose(s.why))),
         s.kind === "judgment" ? h("span.stamp.red", "Needs you") : h("span.stamp" + (s.kind === "mechanical" ? ".faint" : ".open"), KIND[s.kind]),
@@ -267,9 +267,9 @@ function fullDiff(v) {
       const decs = b.decisions.map((d, n) => [d, n + 1]).filter(([d]) => d.section === s.id);
       return h("section.block.rule-top", { "data-section": s.id },
         lid,
-        decs.length ? h("div.row", { style: { gap: "8px 16px" } }, decs.map(([d, n]) => h("a.small", { href: href(v.key, "d", d.id), style: { display: "inline-flex", gap: "6px", alignItems: "center" } }, tri(n, !!(v.answers[d.id] || {}).option), d.title))) : null,
+        decs.length ? h("div.row", { class: "gap-2d" }, decs.map(([d, n]) => h("a.small", { href: href(v.key, "d", d.id), class: "tri-link" }, tri(n, !!(v.answers[d.id] || {}).option), d.title))) : null,
         s.kind !== "judgment" && h("div.pencil", h("div.label", "Proof"), h("div", prose(s.proof)),
-          hunks.length ? h("div.row", { style: { marginTop: "8px", alignItems: "center" } },
+          hunks.length ? h("div.row", { class: "mt mid" },
             h("button.btn.small", { onclick: spot }, "Spot-check a hunk"),
             v.audited[s.id] && h("span.stamp", "Spot-checked by you")) : null, sample),
         closed
@@ -285,13 +285,13 @@ function decision(v, sheet) {
   const rule = d.rule && v.rules[d.rule];
 
   const evidence = (d.evidence || []).map((e) => h("div.pencil",
-    h("div.row", { style: { justifyContent: "space-between", alignItems: "baseline", marginBottom: "8px" } },
-      h("div.label", { style: { color: "var(--pencil)" } }, `${e.kind === "probe" ? "Probe the agent wrote and ran" : e.kind === "run" ? "The agent ran" : e.kind === "search" ? "The agent searched" : "The agent read"}: ${e.title}`),
+    h("div.row", { class: "spread base mb" },
+      h("div.label", { class: "agent-ink" }, `${e.kind === "probe" ? "Probe the agent wrote and ran" : e.kind === "run" ? "The agent ran" : e.kind === "search" ? "The agent searched" : "The agent read"}: ${e.title}`),
       e.passed === false ? h("span.stamp.solid", "Fails") : e.passed === true ? h("span.stamp", "Passes") : null),
     e.code && h("pre.code", e.code),
-    e.command && h("div.small.mono.muted", { style: { margin: "6px 0" } }, "$ " + e.command),
+    e.command && h("div.small.mono.muted", { class: "my" }, "$ " + e.command),
     e.output && h("pre.code.out", e.output),
-    e.file && h("div.small.muted", { style: { marginTop: "6px" } }, "Saved as ", h("span.mono", e.file), " in this review's folder, so it can be rerun.")));
+    e.file && h("div.small.muted", { class: "mt" }, "Saved as ", h("span.mono", e.file), " in this review's folder, so it can be rerun.")));
 
   const asks = (v.asks || []).filter((q) => q.decision === d.id);
   const askInput = h("input.field", { placeholder: "Ask the agent to check something. It answers with a run, a search or a file reference.", "aria-label": "Question for the agent" });
@@ -316,23 +316,23 @@ function decision(v, sheet) {
 
   return h("div.cols",
     h("div.main",
-      h("div.row", { style: { flexWrap: "nowrap", gap: "16px" } }, tri(sheet.n, !!a.option, true),
+      h("div.row", { class: "one-line" }, tri(sheet.n, !!a.option, true),
         h("div.block", h("h1.statement", prose(d.title)), h("p.lede", prose(d.detail)))),
       beforeAfter(d.beforeAfter, (f) => outURL(v, f)),
       (v.hotDiffs[d.id] || []).length ? h("div.block", h("div.label.ink", "The lines that matter"), (v.hotDiffs[d.id] || []).map(diffBlock),
         h("div.small.muted", "A red rule in the margin marks them. ", h("a", { href: href(v.key, "diff") + "/" + d.section }, "See the whole section"))) : null,
       evidence.length ? h("div.block", h("div.label.ink", "Evidence"), evidence) : null,
       h("div.block", h("div.label.ink", "Ask before you decide"),
-        asks.map((q) => h("div.block", { style: { gap: "4px" } }, h("div", { style: { fontWeight: 700 } }, q.question),
+        asks.map((q) => h("div.block", { class: "gap-s" }, h("div", { class: "strong" }, q.question),
           h("div.thread", { "data-ask": q.id }, q.pending ? "" : q.answer), q.pending && h("div.small.muted", h("span.live"), "The agent is looking"))),
-        h("div.row", { style: { flexWrap: "nowrap", gap: "8px" } }, askInput, h("button.btn", { onclick: ask }, "Ask")))),
+        h("div.row", { class: "one-line gap-u" }, askInput, h("button.btn", { onclick: ask }, "Ask")))),
 
     h("div.side.wide",
-      h("div.yours", { style: { position: "sticky", top: "16px" } },
+      h("div.yours", { class: "sticky" },
         h("div.label", "Your call"),
-        h("div", { style: { font: "700 17px/1.3 var(--body)" } }, prose(d.question)),
+        h("div", { class: "question" }, prose(d.question)),
         h("div.small.muted", "The agent cannot decide this."),
-        h("div.block", { style: { gap: "8px" } }, d.options.map((o, i) =>
+        h("div.block", { class: "gap-u" }, d.options.map((o, i) =>
           h("button.option", { "aria-pressed": String(a.option === o.id), onclick: () => answer(v, d, { option: a.option === o.id ? "" : o.id }) },
             h("span.key", i + 1), h("span", h("b", o.label), h("small", prose(o.detail)),
               h("span.stamp" + (o.effect === "blocking" ? ".red" : o.effect === "ask" ? ".open" : ""), o.effect === "blocking" ? "Blocks the merge" : o.effect === "ask" ? "Stays open" : "Accepts it"))))),
@@ -342,10 +342,10 @@ function decision(v, sheet) {
           h("div.small.muted", d.anchor && d.anchor.path ? ["Attaches to ", h("span.mono", `${d.anchor.path}:${d.anchor.line}`), ". Nothing is posted until you sign."] : "Goes in the review body. Nothing is posted until you sign.")),
         rule && h("div.block.rule-top",
           h("div.small", "Raised by your rule ", h("b", rule.id), ": ", rule.text),
-          h("div.row", { style: { gap: "6px", alignItems: "center" } }, h("span.small.muted", "Right to stop you?"), fb("useful", "Yes"), fb("not-here", "Not in this repo"), fb("stop", "Stop raising it"))),
+          h("div.row", { class: "mid gap-s" }, h("span.small.muted", "Right to stop you?"), fb("useful", "Yes"), fb("not-here", "Not in this repo"), fb("stop", "Stop raising it"))),
         !rule && d.proposedRule && h("div.block.rule-top",
           h("div.small", "No rule of yours raised this. Want to be stopped here again?"),
-          h("div.small", { style: { fontWeight: 700 } }, d.proposedRule.text),
+          h("div.small", { class: "strong" }, d.proposedRule.text),
           h("div", h("button.btn.small", { onclick: makeRule }, "Make it a rule, on trial"))),
         h("div.small.muted", h("span.kbd", "1"), " to ", h("span.kbd", String(d.options.length)), " choose"))));
 }
@@ -375,15 +375,15 @@ function signoff(S, v) {
         b.decisions.length ? h("div.scroll-x", h("table.reg", h("tbody", b.decisions.map((dec, i) => {
           const a = v.answers[dec.id] || {}, o = dec.options.find((x) => x.id === a.option);
           return h("tr.go", { onclick: () => go(href(v.key, "d", dec.id)) },
-            h("td", { style: { width: "1%" } }, tri(i + 1, !!o)),
-            h("td", h("div", { style: { fontWeight: 700 } }, prose(dec.title)), h("div.small.muted", o ? `${o.label}. ${o.detail}` : "Not answered")),
-            h("td.r", { style: { width: "1%" } }, !o ? h("span.stamp.open", "Open") : o.effect === "blocking" ? h("span.stamp.contra", "Blocking") : o.effect === "ask" ? h("span.stamp.open", "Asked") : h("span.stamp", "Accepted")),
-            h("td.r.num.muted", { style: { width: "1%" } }, clock(v.seconds[dec.id] || 0)));
+            h("td", { class: "fit" }, tri(i + 1, !!o)),
+            h("td", h("div", { class: "strong" }, prose(dec.title)), h("div.small.muted", o ? `${o.label}. ${o.detail}` : "Not answered")),
+            h("td.r", { class: "fit" }, !o ? h("span.stamp.open", "Open") : o.effect === "blocking" ? h("span.stamp.contra", "Blocking") : o.effect === "ask" ? h("span.stamp.open", "Asked") : h("span.stamp", "Accepted")),
+            h("td.r.num.muted", { class: "fit" }, clock(v.seconds[dec.id] || 0)));
         })))) : h("p.muted", "The agent found nothing that needs a person's judgment.")),
 
       h("div.block", h("div.label.ink", `Comments to post · ${comments.length}`),
-        comments.map((c) => h("div.block", { style: { gap: "6px" } },
-          h("div.row", { style: { gap: "8px", alignItems: "center" } },
+        comments.map((c) => h("div.block", { class: "gap-s" },
+          h("div.row", { class: "mid gap-u" },
             c.decision && decN(c.decision) ? tri(decN(c.decision), true) : null,
             h("span.stamp" + (c.label === "Blocking" ? ".contra" : c.label === "Question" ? ".open" : ""), c.label),
             c.standard && h("span.stamp.faint", c.standard),
@@ -401,13 +401,13 @@ function signoff(S, v) {
         h("p.small.muted", "Nobody downstream has to guess whether approved meant read."))),
 
     h("div.side",
-      h("div.yours", { style: { position: "sticky", top: "16px" } },
+      h("div.yours", { class: "sticky" },
         h("div.label", "Verdict"),
         h("button.btn.red", { "aria-pressed": String(suggested === "REQUEST_CHANGES"), onclick: () => send("REQUEST_CHANGES") }, "Request changes"),
         h("button.btn" + (suggested === "COMMENT" ? ".primary" : ""), { onclick: () => send("COMMENT") }, "Comment only"),
         h("button.btn" + (suggested === "APPROVE" ? ".primary" : ""), { disabled: locked, onclick: () => send("APPROVE") }, locked ? "Approve · locked" : "Approve"),
-        locked && h("div.block", { style: { gap: "4px" } }, h("div.small", "Approve unlocks when none of these remain:"),
-          h("ul.small", { style: { margin: 0, paddingLeft: "18px" } }, d.locks.map((l) => h("li", l)))),
+        locked && h("div.block", { class: "gap-s" }, h("div.small", "Approve unlocks when none of these remain:"),
+          h("ul.small", { class: "list" }, d.locks.map((l) => h("li", l)))),
         (d.warnings || []).map((w) => h("div.small.muted", prose(w))),
         h("div.small.muted", "When the author pushes, Docket reads again and brings you only what changed."))));
 }
