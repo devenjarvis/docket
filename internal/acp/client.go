@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // ContentBlock is an ACP content block. Docket sends and reads text only; other
@@ -137,6 +138,7 @@ type Client struct {
 	closed    bool
 	iso       isolationCounts
 	model     string
+	models    []ModelInfo
 
 	// CancelGrace is how long Prompt keeps waiting for the agent's
 	// stopReason after sending session/cancel.
@@ -281,18 +283,88 @@ func (c *Client) NewSession(ctx context.Context, cwd string, servers ...MCPServe
 	if out.SessionID == "" {
 		return "", errors.New("acp: session/new returned no sessionId")
 	}
-	if m := out.Models; m != nil && m.CurrentModelID != "" {
-		name := m.CurrentModelID
+	var models []ModelInfo
+	if m := out.Models; m != nil {
 		for _, am := range m.AvailableModels {
-			if am.ModelID == m.CurrentModelID && strings.TrimSpace(am.Name) != "" {
-				name = strings.TrimSpace(am.Name)
+			models = append(models, ModelInfo{ID: am.ModelID, Name: am.Name})
+		}
+	}
+	c.mu.Lock()
+	c.models = models
+	if m := out.Models; m != nil && m.CurrentModelID != "" {
+		c.model = modelName(models, m.CurrentModelID)
+	}
+	c.mu.Unlock()
+	return out.SessionID, nil
+}
+
+// ModelInfo is one model an agent offers in its session model state.
+type ModelInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// modelName is id's display name in ms, or id when ms gives it no name.
+func modelName(ms []ModelInfo, id string) string {
+	for _, m := range ms {
+		if m.ID == id && strings.TrimSpace(m.Name) != "" {
+			return strings.TrimSpace(m.Name)
+		}
+	}
+	return id
+}
+
+// Models returns a copy of the models the agent offered in its most recent
+// session/new reply, or nil if it offered none.
+func (c *Client) Models() []ModelInfo {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.models) == 0 {
+		return nil
+	}
+	return append([]ModelInfo(nil), c.models...)
+}
+
+// SetModel asks the agent to run sessionID on modelID (ACP's unstable
+// session/set_model). The agent's error, if any, is returned unchanged; on
+// success Model reports the new model.
+func (c *Client) SetModel(ctx context.Context, sessionID, modelID string) error {
+	params := map[string]string{"sessionId": sessionID, "modelId": modelID}
+	if err := c.conn.Call(ctx, "session/set_model", params, nil); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.model = modelName(c.models, modelID)
+	c.mu.Unlock()
+	return nil
+}
+
+// Smallest picks the cheapest-looking model in ms for a quick job: the first
+// whose id or name contains "haiku" (case-insensitive), else the first
+// containing "mini", then "flash", "small" or "lite", in that order of
+// preference. It returns the model's id, or ok=false when none match.
+func Smallest(ms []ModelInfo) (id string, ok bool) {
+	for _, word := range []string{"haiku", "mini", "flash", "small", "lite"} {
+		for _, m := range ms {
+			if hasWord(m.ID, word) || hasWord(m.Name, word) {
+				return m.ID, true
 			}
 		}
-		c.mu.Lock()
-		c.model = name
-		c.mu.Unlock()
 	}
-	return out.SessionID, nil
+	return "", false
+}
+
+// hasWord reports whether word is one of s's words, split on anything that
+// is not a letter or digit, so "gemini-2.5-pro" does not count as "mini".
+func hasWord(s, word string) bool {
+	for _, w := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if w == word {
+			return true
+		}
+	}
+	return false
 }
 
 // Model is the model the agent last reported for a new session (its display

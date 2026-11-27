@@ -85,12 +85,14 @@ func (g Git) mirror(pr model.PR) string {
 	return filepath.Join(g.Home, "repos", pr.Owner, pr.Repo+".git")
 }
 
-func (g Git) Prepare(ctx context.Context, pr model.PR) (Workspace, string, error) {
-	ws := Layout(g.Home, pr)
+// sync makes sure the PR's repository has a local mirror and fetches the
+// PR's head into refs/docket/<number>/head, along with any extra refspecs.
+// It returns the mirror's path and the head ref.
+func (g Git) sync(ctx context.Context, pr model.PR, extra ...string) (string, string, error) {
 	mirror := g.mirror(pr)
 	if _, err := os.Stat(filepath.Join(mirror, "HEAD")); errors.Is(err, os.ErrNotExist) {
 		if err := os.MkdirAll(filepath.Dir(mirror), 0o755); err != nil {
-			return ws, "", err
+			return mirror, "", err
 		}
 		url := fmt.Sprintf("https://github.com/%s/%s.git", pr.Owner, pr.Repo)
 		if g.Remote != nil {
@@ -99,14 +101,23 @@ func (g Git) Prepare(ctx context.Context, pr model.PR) (Workspace, string, error
 		// Blobs arrive when a checkout needs them, so a large repository
 		// costs only its history up front.
 		if _, err := git(ctx, "", "clone", "--bare", "--filter=blob:none", url, mirror); err != nil {
-			return ws, "", err
+			return mirror, "", err
 		}
 	}
 	headRef := fmt.Sprintf("refs/docket/%d/head", pr.Number)
+	args := append([]string{"fetch", "--force", "origin",
+		fmt.Sprintf("+refs/pull/%d/head:%s", pr.Number, headRef)}, extra...)
+	if _, err := git(ctx, mirror, args...); err != nil {
+		return mirror, "", err
+	}
+	return mirror, headRef, nil
+}
+
+func (g Git) Prepare(ctx context.Context, pr model.PR) (Workspace, string, error) {
+	ws := Layout(g.Home, pr)
 	baseRef := fmt.Sprintf("refs/docket/%d/base", pr.Number)
-	if _, err := git(ctx, mirror, "fetch", "--force", "origin",
-		fmt.Sprintf("+refs/pull/%d/head:%s", pr.Number, headRef),
-		fmt.Sprintf("+refs/heads/%s:%s", pr.BaseRef, baseRef)); err != nil {
+	mirror, headRef, err := g.sync(ctx, pr, fmt.Sprintf("+refs/heads/%s:%s", pr.BaseRef, baseRef))
+	if err != nil {
 		return ws, "", err
 	}
 	head := pr.HeadSHA
