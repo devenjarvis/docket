@@ -1,7 +1,7 @@
 // One pull request, as a set of sheets: Brief, Context, one sheet per
 // decision, the full Diff in reading order, and Sign-off.
 
-import { h, post, toast, plural, clock, ago, tri, prose, openExternal } from "./dom.js";
+import { h, get, post, toast, plural, clock, ago, tri, prose, openExternal } from "./dom.js";
 import { beforeAfter } from "./viz.js";
 import { renderConversation } from "./conversation.js";
 import { href, go, refresh } from "./app.js";
@@ -20,6 +20,11 @@ function sheetsOf(v) {
   out.push({ sheet: "signoff", label: "Sign-off" });
   return out;
 }
+// isNew says whether a decision first appeared in this read, after the
+// reviewer's last look.
+const isNew = (v, id) => !!(v.brief && v.brief.since && (v.brief.since.new || []).includes(id));
+const newStamp = (v, id) => isNew(v, id) && h("span.stamp.open", { class: "count" }, "New");
+
 const at = (S, list) => Math.max(0, list.findIndex((s) => s.sheet === S.route.sheet && (s.sheet !== "d" || s.id === S.route.id)));
 
 // The id that active time is counted against for the sheet on screen.
@@ -45,6 +50,9 @@ export function reviewKeys(S, e) {
   const to = (j) => { const s = list[j]; if (s) go(href(v.key, s.sheet, s.id)); };
   if (e.key === "n" && S.route.sheet === "signoff") { const r = nextReview(S); if (r) go(href(r.key)); }
   else if (e.key === "ArrowRight" || e.key === "n") to(i + 1);
+  else if (e.key === "u") { const d = nextOpen(v, S.route.id); if (d) go(href(v.key, "d", d.id)); else toast("Every decision is answered."); }
+  else if (e.key === "s") go(href(v.key, "signoff"));
+  else if (e.key === "Backspace" && advancedFrom) { e.preventDefault(); const back = advancedFrom; advancedFrom = null; go(back); }
   else if (e.key === "ArrowLeft" || e.key === "p") to(i - 1);
   else if (S.route.sheet === "d" && /^[1-9]$/.test(e.key)) {
     const d = v.brief.decisions.find((x) => x.id === S.route.id);
@@ -53,13 +61,51 @@ export function reviewKeys(S, e) {
   }
 }
 
+// nextOpen is the first unanswered decision after the one with id after,
+// wrapping round to the start; null when every decision is answered.
+function nextOpen(v, after) {
+  const ds = v.brief.decisions || [];
+  const from = ds.findIndex((d) => d.id === after) + 1;
+  for (let k = 0; k < ds.length; k++) {
+    const d = ds[(from + k) % ds.length];
+    if (d.id !== after && !(v.answers[d.id] || {}).option) return d;
+  }
+  return null;
+}
+
+// advancedFrom is the decision sheet an answer moved the reviewer away
+// from, so Backspace can bring them back.
+let advancedFrom = null;
+let advanceTimer;
+
 async function answer(v, d, patch) {
   const cur = v.answers[d.id] || {};
   const next = { option: cur.option || "", comment: cur.comment || "", feedback: cur.feedback || "", ...patch };
   // Choosing a different option starts from that option's own draft.
-  if (patch.option && patch.option !== cur.option) next.comment = "";
-  try { await post("/api/answer", { key: v.key, decision: d.id, ...next }); refresh(true); }
-  catch (e) { toast(e.message); }
+  const chose = patch.option && patch.option !== cur.option;
+  if (chose) next.comment = "";
+  try { await post("/api/answer", { key: v.key, decision: d.id, ...next }); }
+  catch (e) { toast(e.message); return; }
+  await refresh(true);
+  if (chose) advanceAfter(v, d);
+}
+
+// advanceAfter moves on from a decision just answered: to the next open
+// decision, or to Sign-off once none is left. It waits a beat so the choice
+// is seen, and stays put if the reviewer starts typing or moves first.
+function advanceAfter(v, d) {
+  clearTimeout(advanceTimer);
+  const here = location.hash;
+  advanceTimer = setTimeout(() => {
+    const el = document.activeElement;
+    if (location.hash !== here || (el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT"))) return;
+    const answers = { ...v.answers, [d.id]: { option: "x" } };
+    const to = nextOpen({ ...v, answers }, d.id);
+    const n = (id) => v.brief.decisions.findIndex((x) => x.id === id) + 1;
+    advancedFrom = here;
+    go(to ? href(v.key, "d", to.id) : href(v.key, "signoff"));
+    toast(`${to ? `On to decision ${n(to.id)}` : "Every decision is answered: on to Sign-off"}. Backspace goes back to decision ${n(d.id)}.`);
+  }, 400);
 }
 
 // --- frame ------------------------------------------------------------------
@@ -70,15 +116,21 @@ export function renderReview(S) {
   const head = h("div.titleblock",
     h("a.brand", { href: "#/", title: "Back to the queue" }, "Docket"),
     cell("Pull request", `${p.owner}/${p.repo} #${p.number}`),
-    cell("Title", p.title, ".wide"),
-    cell("Author", p.author),
-    cell("Read at", v.readSha ? v.readSha.slice(0, 7) : "not yet"),
+    cell("Title", p.title, ".wide.narrow-hide"),
+    cell("Author", p.author, ".narrow-hide"),
+    cell("Read at", v.readSha ? v.readSha.slice(0, 7) : "not yet", ".narrow-hide"),
     cell("Sheet", list.length ? `${i + 1} of ${list.length}` : "none"));
 
+  // Past two decisions, a decision's tab is its triangle alone, so the index
+  // keeps to one row; Sign-off is pinned at the right either way.
+  const compact = (b && b.decisions || []).length > 2;
+  const tab = (s) => h("a", { href: href(v.key, s.sheet, s.id), "aria-current": s === list[i] ? "page" : null, title: s.decision ? `Decision ${s.n}: ${s.decision.title}` : null,
+    "aria-label": s.decision && compact ? `Decision ${s.n}: ${s.decision.title}` : null, class: s.decision && compact ? "tab-tri" : null },
+  s.decision ? [tri(s.n, !!(v.answers[s.id] && v.answers[s.id].option)), !compact && h("span", { class: "tab-title" }, s.decision.title), newStamp(v, s.id)] : s.label);
   const tabs = b && h("nav.sheets", { "aria-label": "Sheets" },
-    list.map((s) => h("a", { href: href(v.key, s.sheet, s.id), "aria-current": s === list[i] ? "page" : null, title: s.decision ? s.decision.title : null },
-      s.decision ? [tri(s.n, !!(v.answers[s.id] && v.answers[s.id].option)), h("span", { class: "tab-title" }, s.decision.title)] : s.label)),
+    list.filter((s) => s.sheet !== "signoff").map(tab),
     h("span.spacer"),
+    list.filter((s) => s.sheet === "signoff").map(tab),
     h("a", { href: p.url || "#", target: "_blank", rel: "noreferrer", onclick: openExternal }, "On GitHub"));
 
   let body;
@@ -88,7 +140,7 @@ export function renderReview(S) {
   else if (S.route.sheet === "diff") body = fullDiff(v);
   else if (S.route.sheet === "signoff") body = signoff(S, v);
   else if (S.route.sheet === "conversation") body = S.conv ? renderConversation(v.key, S.conv, S.st.queue.viewer, v.pr.author, () => refresh(true)) : h("p.muted", "Could not read the conversation.");
-  else body = brief(v, list);
+  else body = brief(S, v, list);
 
   const banners = [
     v.summary.pushed && v.status !== "reading" && v.status !== "queued" && h("div.banner.red", "The author pushed since this was read. A fresh read is queued; your answers carry over for every decision that still stands."),
@@ -100,12 +152,25 @@ export function renderReview(S) {
 }
 
 function pager(v, list, i) {
-  const prev = list[i - 1], next = list[i + 1];
+  const prev = list[i - 1], cur = list[i];
+  let next = list[i + 1];
   const name = (s) => s.decision ? `Decision ${s.n}` : s.label;
+  const link = (s, cls) => h("a.btn" + cls, { href: href(v.key, s.sheet, s.id) }, s === prev ? "← " + name(s) : name(s) + (cls === ".primary" ? " →" : ""));
+  // Once every decision is answered, the way forward is Sign-off; Diff and
+  // Conversation stay a click away beside it.
+  const done = (v.brief.decisions || []).every((d) => (v.answers[d.id] || {}).option);
+  let aside = [];
+  if (done && cur.sheet !== "signoff") {
+    next = list.find((s) => s.sheet === "signoff");
+    aside = list.filter((s) => (s.sheet === "diff" || s.sheet === "conversation") && s !== cur && s !== prev)
+      .map((s) => h("a.small", { href: href(v.key, s.sheet, s.id) }, s.label));
+  }
+  const open = (v.brief.decisions || []).some((d) => !(v.answers[d.id] || {}).option);
   return h("div.row.rule-top", { class: "spread mid" },
-    prev ? h("a.btn.quiet", { href: href(v.key, prev.sheet, prev.id) }, "← " + name(prev)) : h("span"),
-    h("span.small.muted", h("span.kbd", "←"), " ", h("span.kbd", "→"), " move between sheets"),
-    next ? h("a.btn.primary", { href: href(v.key, next.sheet, next.id) }, name(next) + " →") : h("span"));
+    prev ? link(prev, ".quiet") : h("span"),
+    h("span.small.muted", h("span.kbd", "←"), " ", h("span.kbd", "→"), " sheets",
+      open && [" · ", h("span.kbd", "u"), " next open decision"], " · ", h("span.kbd", "s"), " sign-off"),
+    h("div.row", { class: "mid" }, aside, next ? link(next, ".primary") : h("span")));
 }
 
 function waiting(v) {
@@ -124,8 +189,12 @@ function waiting(v) {
 }
 
 // --- brief --------------------------------------------------------------------
-function brief(v, list) {
+function brief(S, v, list) {
   const b = v.brief, sum = v.summary;
+  // Nothing needs the reviewer here: offer the short way, one random hunk
+  // and then the same confirm row as Sign-off.
+  const fast = sum.lane === "clear" && v.status === "ready" ? { el: h("div") } : null;
+  if (fast && S.fast && S.fast.key === v.key) setTimeout(() => spotAndApprove(S, v, fast), 0);
   const total = b.sections.reduce((n, s) => n + s.lines, 0) || 1;
   const by = (k) => b.sections.filter((s) => s.kind === k).reduce((n, s) => n + s.lines, 0);
   const first = list[1];
@@ -138,7 +207,9 @@ function brief(v, list) {
         h("p.lede", prose(b.summary)),
         h("div.row", { class: "mid" },
           h("a.btn.primary", { href: href(v.key, first.sheet, first.id) }, first.sheet === "context" ? "Start with the context" : first.decision ? "Start with decision 1" : "Read the diff"),
-          h("span.small.muted", sum.decisions ? `${plural(sum.decisions, "decision")}, about ${Math.max(sum.minutes, 1)} min` : "No decisions for you"))),
+          fast && h("button.btn", { onclick: () => spotAndApprove(S, v, fast) }, "Spot-check and approve"),
+          h("span.small.muted", sum.decisions ? `${plural(sum.decisions, "decision")}, about ${Math.max(sum.minutes, 1)} min` : "No decisions for you")),
+        fast && fast.el),
 
       h("div.block",
         h("div.label.ink", `Where the ${total} changed lines go`),
@@ -198,6 +269,46 @@ function brief(v, list) {
         h("button.btn.quiet.small", { class: "mt", onclick: () => post("/api/reread", { key: v.key }).then(() => refresh(true)) }, "Read it again"))));
 }
 
+// spotAndApprove picks one hunk from the sections taken on proof, and once the
+// reviewer says the proof holds for it, records the spot-check and asks to
+// post Approve.
+function spotAndApprove(S, v, fast) {
+  const hunks = v.brief.sections.filter((s) => s.kind !== "judgment").flatMap((s) =>
+    (v.sectionDiffs[s.id] || []).flatMap((fd) => (fd.hunks || []).map((hk) => ({ section: s, fd: { ...fd, hunks: [hk] } }))));
+  if (!hunks.length) { go(href(v.key, "signoff")); return; }
+  // The pick is kept, so a refresh from a live update shows the same hunk.
+  if (!S.fast || S.fast.key !== v.key || S.fast.n >= hunks.length) S.fast = { key: v.key, n: Math.floor(Math.random() * hunks.length) };
+  const pick = hunks[S.fast.n];
+  const confirm = h("div.block.hidden", { class: "gap-u well" });
+  // The draft is kept on S too: recording the spot-check sends a live update
+  // that redraws the Brief, and the confirm row has to survive it.
+  const showConfirm = (d) => {
+    confirm.replaceChildren(...confirmPost(S, v, "APPROVE", d.comments || [], () => "", () => !!d.includeReceipt, () => { S.fast = null; fast.el.replaceChildren(); }));
+    confirm.classList.remove("hidden");
+    confirm.querySelector("button").focus();
+  };
+  const holds = async (ev) => {
+    const btn = ev.currentTarget;
+    btn.disabled = true;
+    try {
+      await post("/api/audit", { key: v.key, section: pick.section.id, done: true });
+      const d = await get("/api/draft?key=" + encodeURIComponent(v.key));
+      if ((d.locks || []).length) { toast("Approve is locked: " + d.locks.map((l) => l.text).join(", ")); go(href(v.key, "signoff")); return; }
+      S.fast.draft = d;
+      showConfirm(d);
+    } catch (e) { toast(e.message); btn.disabled = false; }
+  };
+  if (S.fast.draft) setTimeout(() => showConfirm(S.fast.draft), 0);
+  fast.el.replaceChildren(h("div.block",
+    h("div.label", `One hunk, picked at random from ${pick.section.title}`),
+    h("div.pencil", h("div.label", "The agent's proof"), h("div", prose(pick.section.proof))),
+    diffBlock(pick.fd),
+    h("div.row", { class: "mid gap-u" },
+      h("button.btn.primary", { onclick: holds }, "The proof holds: approve"),
+      h("a.btn.quiet", { href: href(v.key, "diff") + "/" + pick.section.id }, "Read the whole section")),
+    confirm));
+}
+
 // --- context ---------------------------------------------------------------------
 function context(v) {
   const c = v.brief.context;
@@ -255,7 +366,9 @@ function fullDiff(v) {
       const hunks = fds.flatMap((fd) => (fd.hunks || []).map((hk) => ({ ...fd, hunks: [hk] })));
       const sample = h("div");
       const spot = () => {
-        const pick = hunks[Math.floor(Math.random() * hunks.length)];
+        // The pick is kept, so a refresh from a live update shows the same hunk.
+  if (!S.fast || S.fast.key !== v.key || S.fast.n >= hunks.length) S.fast = { key: v.key, n: Math.floor(Math.random() * hunks.length) };
+  const pick = hunks[S.fast.n];
         sample.replaceChildren(h("div.block", h("div.label", "One hunk, picked at random"), diffBlock(pick),
           h("label.check", h("input", { type: "checkbox", checked: !!v.audited[s.id], onchange: (e) => post("/api/audit", { key: v.key, section: s.id, done: e.target.checked }) }),
             "I checked this hunk and the proof holds for it")));
@@ -295,7 +408,7 @@ function decision(v, sheet) {
     e.file && h("div.small.muted", { class: "mt" }, "Saved as ", h("span.mono", e.file), " in this review's folder, so it can be rerun.")));
 
   const asks = (v.asks || []).filter((q) => q.decision === d.id);
-  const askInput = h("input.field", { placeholder: "Ask the agent to check something. It answers with a run, a search or a file reference.", "aria-label": "Question for the agent" });
+  const askInput = h("input.field", { placeholder: "Ask the agent to check something", "aria-label": "Question for the agent" });
   const ask = async () => {
     if (!askInput.value.trim()) return;
     try { await post("/api/ask", { key: v.key, decision: d.id, question: askInput.value }); askInput.value = ""; refresh(true); }
@@ -318,15 +431,11 @@ function decision(v, sheet) {
   return h("div.cols",
     h("div.main",
       h("div.row", { class: "one-line" }, tri(sheet.n, !!a.option, true),
-        h("div.block", h("h1.statement", prose(d.title)), h("p.lede", prose(d.detail)))),
+        h("div.block", newStamp(v, d.id) && h("div", h("span.stamp.open", "New since your last look")), h("h1.statement", prose(d.title)), h("p.lede", prose(d.detail)))),
       beforeAfter(d.beforeAfter, (f) => outURL(v, f)),
       (v.hotDiffs[d.id] || []).length ? h("div.block", h("div.label.ink", "The lines that matter"), (v.hotDiffs[d.id] || []).map(diffBlock),
         h("div.small.muted", "A red rule in the margin marks them. ", h("a", { href: href(v.key, "diff") + "/" + d.section }, "See the whole section"))) : null,
-      evidence.length ? h("div.block", h("div.label.ink", "Evidence"), evidence) : null,
-      h("div.block", h("div.label.ink", "Ask before you decide"),
-        asks.map((q) => h("div.block", { class: "gap-s" }, h("div", { class: "strong" }, q.question),
-          h("div.thread", { "data-ask": q.id }, q.pending ? "" : q.answer), q.pending && h("div.small.muted", h("span.live"), "The agent is looking"))),
-        h("div.row", { class: "one-line gap-u" }, askInput, h("button.btn", { onclick: ask }, "Ask")))),
+      evidence.length ? h("div.block", h("div.label.ink", "Evidence"), evidence) : null),
 
     h("div.side.wide",
       h("div.yours", { class: "sticky" },
@@ -341,6 +450,11 @@ function decision(v, sheet) {
           h("div.label", chosen.effect === "accept" ? "Note to post (optional)" : "Comment to post"),
           comment,
           h("div.small.muted", d.anchor && d.anchor.path ? ["Attaches to ", h("span.mono", `${d.anchor.path}:${d.anchor.line}`), ". Nothing is posted until you sign."] : "Goes in the review body. Nothing is posted until you sign.")),
+        h("div.block.rule-top", { class: "gap-s" },
+          h("div.label", "Ask before you decide"),
+          asks.map((q) => h("div.block", { class: "gap-s" }, h("div.small", { class: "strong" }, q.question),
+            h("div.thread.small", { "data-ask": q.id }, q.pending ? "" : q.answer), q.pending && h("div.small.muted", h("span.live"), "The agent is looking"))),
+          h("div.row", { class: "one-line gap-u" }, askInput, h("button.btn.small", { onclick: ask }, "Ask"))),
         rule && h("div.block.rule-top",
           h("div.small", "Raised by your rule ", h("b", rule.id), ": ", rule.text),
           h("div.row", { class: "mid gap-s" }, h("span.small.muted", "Right to stop you?"), fb("useful", "Yes"), fb("not-here", "Not in this repo"), fb("stop", "Stop raising it"))),
@@ -356,7 +470,11 @@ function signoff(S, v) {
   const d = S.draft, b = v.brief;
   if (!d) return h("p", "Loading");
   const comments = (d.comments || []).map((c) => ({ ...c }));
-  const bodyBox = h("textarea.field", { rows: Math.min(14, 3 + (d.body || "").split("\n").length), value: d.body || "", "aria-label": "Review summary" });
+  const bodyBox = h("textarea.field", { rows: 3, value: d.body || "", "aria-label": "Review summary",
+    placeholder: "Anything you want to say in your own words. Comments that cannot sit on a line are added on their own." });
+  // Whether the receipt goes in: the setting decides the default, and the
+  // reviewer can change it for this one review.
+  if (!S.receipt || S.receipt.key !== v.key) S.receipt = { key: v.key, on: !!d.includeReceipt };
   const decN = (id) => b.decisions.findIndex((x) => x.id === id) + 1;
 
   return h("div.cols",
@@ -369,7 +487,7 @@ function signoff(S, v) {
           const a = v.answers[dec.id] || {}, o = dec.options.find((x) => x.id === a.option);
           return h("tr.go", { onclick: () => go(href(v.key, "d", dec.id)) },
             h("td", { class: "fit" }, tri(i + 1, !!o)),
-            h("td", h("div", { class: "strong" }, prose(dec.title)), h("div.small.muted", o ? `${o.label}. ${o.detail}` : "Not answered")),
+            h("td", h("div", { class: "strong" }, prose(dec.title), newStamp(v, dec.id)), h("div.small.muted", o ? `${o.label}. ${o.detail}` : "Not answered")),
             h("td.r", { class: "fit" }, !o ? h("span.stamp.open", "Open") : o.effect === "blocking" ? h("span.stamp.contra", "Blocking") : o.effect === "ask" ? h("span.stamp.open", "Asked") : h("span.stamp", "Accepted")),
             h("td.r.num.muted", { class: "fit" }, clock(v.seconds[dec.id] || 0)));
         })))) : h("p.muted", "The agent found nothing that needs a person's judgment.")),
@@ -386,12 +504,13 @@ function signoff(S, v) {
 
       h("div.block", h("div.label.ink", "Review summary"), bodyBox),
 
-      h("div.block", h("div.label.ink", `Attention receipt · ${clock(d.totalSeconds || 0)} of your time`),
+      h("div.block", h("div.row", { class: "spread mid" }, h("div.label.ink", `Attention receipt · ${clock(d.totalSeconds || 0)} of your time`),
+          h("label.check", h("input", { type: "checkbox", checked: S.receipt.on, onchange: (e) => { S.receipt.on = e.target.checked; } }), "Include it in the review")),
         h("div.scroll-x", h("table.reg",
           h("thead", h("tr", h("th", "Part"), h("th.r", "Lines"), h("th", "Covered by"), h("th.r", "Your time"))),
           h("tbody", (d.receipt || []).map((l) => h("tr", h("td", l.title), h("td.r.num", l.lines),
             h("td.small", l.covered), h("td.r.num", clock(l.seconds))))))),
-        h("p.small.muted", "Nobody downstream has to guess whether approved meant read."))),
+        h("p.small.muted", "Nobody downstream has to guess whether approved meant read. It posts folded, below your summary, with the time as it stands when you post."))),
 
     h("div.side", verdict(S, v, d, comments, bodyBox)));
 }
@@ -408,15 +527,9 @@ function verdict(S, v, d, comments, bodyBox) {
   const locked = (d.locks || []).length > 0, suggested = d.event;
   const confirmRow = h("div.block.hidden", { class: "gap-u well" });
   const ask = (event) => {
-    const inline = comments.filter((c) => c.inline && c.body.trim()).length;
-    const sha = v.readSha ? v.readSha.slice(0, 7) : "the commit that was read";
-    const post = h("button.btn.red", { onclick: (ev) => send(S, v, event, bodyBox.value, comments, ev) }, "Post review");
-    confirmRow.replaceChildren(
-      h("div", "Post ", h("i", EVENT[event]), ` with ${inline ? plural(inline, "inline comment") : "no inline comments"} on `, h("span.mono", sha), "?"),
-      h("div.row", { class: "mid gap-u" }, post,
-        h("button.btn.quiet", { onclick: () => confirmRow.classList.add("hidden") }, "Cancel")));
+    confirmRow.replaceChildren(...confirmPost(S, v, event, comments, () => bodyBox.value, () => S.receipt.on, () => confirmRow.classList.add("hidden")));
     confirmRow.classList.remove("hidden");
-    post.focus();
+    confirmRow.querySelector("button").focus();
   };
   return panel(
     h("div.label", "Verdict"),
@@ -425,19 +538,43 @@ function verdict(S, v, d, comments, bodyBox) {
     h("button.btn.red", { "aria-pressed": String(suggested === "REQUEST_CHANGES"), onclick: () => ask("REQUEST_CHANGES") }, "Request changes"),
     confirmRow,
     locked && h("div.block", { class: "gap-s" }, h("div.small", "Approve unlocks when none of these remain:"),
-      h("ul.small", { class: "list" }, d.locks.map((l) => h("li", l)))),
-    (d.warnings || []).map((w) => h("div.small.muted", prose(w))),
+      d.locks.map((l) => reasonLink(v, l, h("span.small", l.text)))),
+    (d.warnings || []).map((w) => reasonLink(v, w, h("span.small.muted", prose(w.text)))),
     h("div.small.muted", "When the author pushes, Docket reads again and brings you only what changed."));
 }
 
-async function send(S, v, event, body, comments, ev) {
+// confirmPost is the confirm row's content: what will post, where, and the
+// one button that posts it.
+function confirmPost(S, v, event, comments, body, receipt, cancel) {
+  const inline = comments.filter((c) => c.inline && c.body.trim()).length;
+  const sha = v.readSha ? v.readSha.slice(0, 7) : "the commit that was read";
+  return [
+    h("div", "Post ", h("i", EVENT[event]), ` with ${inline ? plural(inline, "inline comment") : "no inline comments"} on `, h("span.mono", sha), "?"),
+    h("div.row", { class: "mid gap-u" },
+      h("button.btn.red", { onclick: (ev) => send(S, v, event, body(), comments, receipt(), ev) }, "Post review"),
+      h("button.btn.quiet", { onclick: cancel }, "Cancel")),
+  ];
+}
+
+// reasonLink makes a lock or warning lead to where it is settled: the
+// decision behind it, or the section to spot-check.
+function reasonLink(v, r, text) {
+  const n = r.decision ? v.brief.decisions.findIndex((x) => x.id === r.decision) + 1 : 0;
+  if (n) return h("a.small", { href: href(v.key, "d", r.decision), class: "tri-link" }, tri(n, !!(v.answers[r.decision] || {}).option), text);
+  if (r.section) return h("div", text, " ", h("a.small", { href: href(v.key, "diff") + "/" + r.section }, "Spot-check one"));
+  return h("div", text);
+}
+
+async function send(S, v, event, body, comments, receipt, ev) {
   const btn = ev && ev.currentTarget;
   if (btn) btn.disabled = true;
   try {
-    await post("/api/post", { key: v.key, event, body, comments });
+    await post("/api/post", { key: v.key, event, body, comments, receipt });
     S.repost = null;
+    S.fast = null;
     toast("Posted to GitHub.");
-    refresh(true);
+    // The way on to the next review is on Sign-off.
+    if (S.route.sheet !== "signoff") go(href(v.key, "signoff")); else refresh(true);
   } catch (e) {
     toast(e.message);
     if (btn) btn.disabled = false;

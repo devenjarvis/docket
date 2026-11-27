@@ -36,7 +36,9 @@ function comment(c, viewer) {
 }
 
 // replyBox is a textarea and a button; done is called once the reply posted.
-function replyBox(label, placeholder, send) {
+// Folded, it is a quiet button that opens the box, so a pull request with
+// many threads does not run to several screens of empty boxes.
+function replyBox(label, placeholder, send, folded) {
   const ta = h("textarea.field", { rows: 2, placeholder, "aria-label": label });
   const btn = h("button.btn.small", {
     onclick: async () => {
@@ -46,7 +48,11 @@ function replyBox(label, placeholder, send) {
       btn.disabled = false;
     },
   }, label);
-  return h("div", { class: "stack mt" }, ta, h("div", btn));
+  const box = h("div", { class: "stack mt" + (folded ? " hidden" : "") }, ta,
+    h("div.row", { class: "gap-u" }, btn, folded && h("button.btn.small.quiet", { onclick: () => { ta.value = ""; box.classList.add("hidden"); opener.classList.remove("hidden"); } }, "Cancel")));
+  if (!folded) return box;
+  const opener = h("button.btn.small.quiet", { class: "mt", onclick: () => { opener.classList.add("hidden"); box.classList.remove("hidden"); ta.focus(); } }, label);
+  return h("div", opener, box);
 }
 
 function thread(key, t, viewer, author, onChange) {
@@ -65,7 +71,7 @@ function thread(key, t, viewer, author, onChange) {
       const ok = await act(key, { kind: "reply", thread: t.id, body: text });
       if (ok) onChange();
       return ok;
-    }),
+    }, true),
   ];
   const head = h("div.row", { class: "spread mid gap-u" },
     h("span.row", { class: "mid gap-u" },
