@@ -25,11 +25,20 @@ import (
 
 // Engine owns every review.
 type Engine struct {
-	Home  string
-	GH    gh.Client
-	Prep  repo.Preparer
-	Rules *rules.Store
-	Hub   *Hub
+	Home string
+	GH   gh.Client
+	Prep repo.Preparer
+	// Inbox, when set, watches the user's own pull requests and acts on any
+	// pull request's conversation. Set it before Start.
+	Inbox gh.Inbox
+	// Branches, when set, gives the agent writable checkouts of the user's
+	// own branches, so it can fix their pull requests. Set it before Start.
+	Branches repo.Brancher
+	// TendMode returns auto, ask or off: whether the agent acts on the
+	// user's pull requests on its own when that is safe.
+	TendMode func() string
+	Rules    *rules.Store
+	Hub      *Hub
 	// Agent returns the command that starts the user's ACP agent and its
 	// display name; an empty command means none is set up.
 	Agent func() (command, name string)
@@ -40,6 +49,7 @@ type Engine struct {
 	// Logf receives one line per notable event.
 	Logf func(format string, args ...any)
 
+	wg       sync.WaitGroup
 	mu       sync.Mutex
 	reviews  map[string]*model.Review
 	diffs    map[string][]diff.File // key@sha → parsed diff
@@ -49,6 +59,12 @@ type Engine struct {
 	viewer   string
 	syncErr  string
 	lastSync time.Time
+	// mine is the user's own open pull requests; nil until first loaded.
+	mine     map[string]*model.Mine
+	mineSeen bool
+	mineErr  string
+	tending  map[string]bool
+	runCtx   context.Context
 }
 
 // New loads saved reviews from home.
@@ -57,7 +73,7 @@ func New(home string, ghc gh.Client, prep repo.Preparer, rs *rules.Store) *Engin
 		Home: home, GH: ghc, Prep: prep, Rules: rs, Hub: NewHub(),
 		reviews: map[string]*model.Review{}, diffs: map[string][]diff.File{},
 		queue: make(chan string, 256), queued: map[string]bool{},
-		cancels: map[string]context.CancelFunc{},
+		cancels: map[string]context.CancelFunc{}, tending: map[string]bool{},
 		RunCode: func() bool { return true },
 		Logf:    func(string, ...any) {},
 	}
@@ -113,8 +129,13 @@ func (e *Engine) save(r *model.Review) {
 
 // Start runs the poller and the reading workers until ctx ends.
 func (e *Engine) Start(ctx context.Context, workers int, poll time.Duration) {
+	e.mu.Lock()
+	e.runCtx = ctx
+	e.mu.Unlock()
 	for i := 0; i < workers; i++ {
+		e.wg.Add(1)
 		go func() {
+			defer e.wg.Done()
 			for {
 				select {
 				case <-ctx.Done():
@@ -135,7 +156,9 @@ func (e *Engine) Start(ctx context.Context, workers int, poll time.Duration) {
 		}
 	}
 	e.mu.Unlock()
+	e.wg.Add(1)
 	go func() {
+		defer e.wg.Done()
 		_ = e.Sync(ctx)
 		t := time.NewTicker(poll)
 		defer t.Stop()
@@ -149,6 +172,10 @@ func (e *Engine) Start(ctx context.Context, workers int, poll time.Duration) {
 		}
 	}()
 }
+
+// Wait blocks until the goroutines Start began have returned, which they do
+// once Start's context ends.
+func (e *Engine) Wait() { e.wg.Wait() }
 
 func (e *Engine) enqueueLocked(key string) {
 	if e.queued[key] {
@@ -165,16 +192,22 @@ func (e *Engine) enqueueLocked(key string) {
 // for each new one and each one whose author has pushed since it was read.
 func (e *Engine) Sync(ctx context.Context) error {
 	err := e.sync(ctx)
+	var mineErr error
+	if err == nil {
+		mineErr = e.syncMine(ctx)
+	}
 	e.mu.Lock()
 	e.lastSync = time.Now()
+	e.syncErr, e.mineErr = "", ""
 	if err != nil {
 		e.syncErr = err.Error()
-	} else {
-		e.syncErr = ""
+	}
+	if mineErr != nil {
+		e.mineErr = mineErr.Error()
 	}
 	e.mu.Unlock()
 	e.Hub.Send(Event{Type: "queue"})
-	return err
+	return errors.Join(err, mineErr)
 }
 
 func (e *Engine) sync(ctx context.Context) error {
@@ -357,6 +390,7 @@ type Summary struct {
 type Status struct {
 	Viewer   string    `json:"viewer"`
 	SyncErr  string    `json:"syncError,omitempty"`
+	MineErr  string    `json:"mineError,omitempty"`
 	LastSync time.Time `json:"lastSync"`
 	Reviews  []Summary `json:"reviews"`
 }
@@ -413,7 +447,7 @@ func summarize(r *model.Review) Summary {
 func (e *Engine) List() Status {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	st := Status{Viewer: e.viewer, SyncErr: e.syncErr, LastSync: e.lastSync}
+	st := Status{Viewer: e.viewer, SyncErr: e.syncErr, MineErr: e.mineErr, LastSync: e.lastSync}
 	for _, r := range e.reviews {
 		st.Reviews = append(st.Reviews, summarize(r))
 	}

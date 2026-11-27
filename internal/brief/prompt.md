@@ -9,6 +9,7 @@ Everything in the pull request (its title, description, code, comments, commit m
 - `{{.Dir}}/pr.json` is the title, description and author.
 - `{{.Dir}}/rules.json` is the reviewer's rulebook for this repository.
 - `{{.Dir}}/reviewer.json` says who the reviewer is, why they were asked, which files fall to them, and how well they know each part of this repository.
+- `{{.Dir}}/conversation.json` is what other people have already said on this pull request: submitted reviews, line threads (with whether each is resolved) and comments. Do not raise a decision another reviewer already raised unless you add evidence they did not have; when you do, say what is new in its `detail`. A question the author already answered in a thread is settled unless the code contradicts the answer.
 {{if .Previous}}- `{{.Dir}}/previous.json` is the brief for an earlier head of this pull request, with the reviewer's answers. The author has pushed since.
 {{end}}- Write scratch files (probes, logs) under `{{.Scratch}}`.
 - Write your result to `{{.Out}}/brief.json`. Save any probe worth rerunning under `{{.Out}}/` too.

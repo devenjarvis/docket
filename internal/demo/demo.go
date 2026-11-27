@@ -59,7 +59,19 @@ func (GitHub) Assigned(context.Context) ([]model.PR, error) {
 	return out, nil
 }
 
-func (GitHub) PR(_ context.Context, owner, name string, n int) (model.PR, error) {
+func (g GitHub) PR(_ context.Context, owner, name string, n int) (model.PR, error) {
+	in := g.state()
+	in.mu.Lock()
+	o := in.find(owner, name, n)
+	var own model.PR
+	if o != nil {
+		own = o.pr
+	}
+	in.mu.Unlock()
+	if o != nil {
+		own.URL = fmt.Sprintf("https://github.com/%s/%s/pull/%d", owner, name, n)
+		return own, nil
+	}
 	for _, p := range prs {
 		if p.Owner == owner && p.Repo == name && p.Number == n {
 			p.URL = fmt.Sprintf("https://github.com/%s/%s/pull/%d", owner, name, n)

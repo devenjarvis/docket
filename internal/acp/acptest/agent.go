@@ -57,6 +57,9 @@ type Agent struct {
 	// Model, when set, is reported as the session's current model in every
 	// session/new result (ACP's session model state).
 	Model string
+	// RejectSetModel makes session/set_model answer with an error, the way an
+	// agent without the unstable method does.
+	RejectSetModel bool
 
 	mu        sync.Mutex
 	w         io.Writer
@@ -71,6 +74,21 @@ type Agent struct {
 	Cwds []string
 	// MCPServers records the mcpServers of every session/new, as sent.
 	MCPServers []json.RawMessage
+	choices    []ModelChoice
+}
+
+// ModelChoice is one session/set_model request the agent received.
+type ModelChoice struct {
+	SessionID string
+	ModelID   string
+}
+
+// ModelChoices returns every session/set_model request received, in order,
+// including rejected ones.
+func (a *Agent) ModelChoices() []ModelChoice {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]ModelChoice(nil), a.choices...)
 }
 
 type frame struct {
@@ -306,6 +324,21 @@ func (a *Agent) handle(f frame, crash func()) {
 		a.mu.Unlock()
 	case "session/prompt":
 		a.prompt(f, crash)
+	case "session/set_model":
+		var p struct {
+			SessionID string `json:"sessionId"`
+			ModelID   string `json:"modelId"`
+		}
+		_ = json.Unmarshal(f.Params, &p)
+		a.mu.Lock()
+		a.choices = append(a.choices, ModelChoice{SessionID: p.SessionID, ModelID: p.ModelID})
+		a.mu.Unlock()
+		if a.RejectSetModel {
+			raw, _ := json.Marshal(map[string]any{"code": -32601, "message": "method not found"})
+			a.send(frame{ID: f.ID, Error: raw})
+			return
+		}
+		a.respond(f.ID, map[string]any{})
 	default:
 		if len(f.ID) > 0 {
 			raw, _ := json.Marshal(map[string]any{"code": -32601, "message": "method not found"})

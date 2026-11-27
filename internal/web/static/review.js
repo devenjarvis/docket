@@ -1,8 +1,9 @@
 // One pull request, as a set of sheets: Brief, Context, one sheet per
 // decision, the full Diff in reading order, and Sign-off.
 
-import { h, post, toast, plural, clock, ago, tri, prose } from "./dom.js";
+import { h, post, toast, plural, clock, ago, tri, prose, openExternal } from "./dom.js";
 import { beforeAfter } from "./viz.js";
+import { renderConversation } from "./conversation.js";
 import { href, go, refresh } from "./app.js";
 
 const KIND = { judgment: "Needs you", skim: "Verified, skim", mechanical: "Mechanical, proven" };
@@ -15,6 +16,7 @@ function sheetsOf(v) {
   if (b.context) out.push({ sheet: "context", label: "Context" });
   (b.decisions || []).forEach((d, i) => out.push({ sheet: "d", id: d.id, n: i + 1, label: `${i + 1}`, decision: d }));
   out.push({ sheet: "diff", label: "Diff" });
+  out.push({ sheet: "conversation", label: "Conversation" });
   out.push({ sheet: "signoff", label: "Sign-off" });
   return out;
 }
@@ -84,6 +86,7 @@ export function renderReview(S) {
   else if (S.route.sheet === "d") body = decision(v, list[i]);
   else if (S.route.sheet === "diff") body = fullDiff(v);
   else if (S.route.sheet === "signoff") body = signoff(S, v);
+  else if (S.route.sheet === "conversation") body = S.conv ? renderConversation(v.key, S.conv, S.st.queue.viewer, v.pr.author, () => refresh(true)) : h("p.muted", "Could not read the conversation.");
   else body = brief(v, list);
 
   const banners = [
@@ -93,12 +96,6 @@ export function renderReview(S) {
     v.status === "posted" && v.posted && h("div.banner", `You posted this review ${ago(v.posted.at)} (${v.posted.event.toLowerCase().replace("_", " ")}). `, h("a", { href: v.posted.url, target: "_blank", rel: "noreferrer", onclick: openExternal }, "See it on GitHub")),
   ];
   return h("div.sheet", head, tabs, h("div.body", banners, body, b && pager(v, list, i)));
-}
-
-function openExternal(e) {
-  const url = e.currentTarget.href;
-  post("/api/open", { url }).then((r) => { if (!r.native) window.open(url, "_blank", "noreferrer"); }).catch(() => {});
-  e.preventDefault();
 }
 
 function pager(v, list, i) {

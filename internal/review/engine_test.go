@@ -28,7 +28,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func start(t *testing.T) (*review.Engine, string) {
+func start(t *testing.T, setup ...func(*review.Engine, string)) (*review.Engine, string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("DOCKET_HOME", home)
@@ -41,8 +41,14 @@ func start(t *testing.T) (*review.Engine, string) {
 	eng := review.New(home, demo.GitHub{Home: home}, demo.Checkout{Home: home}, rs)
 	self, _ := os.Executable()
 	eng.Agent = func() (string, string) { return fmt.Sprintf("DOCKET_TEST_AGENT=1 %q", self), "test agent" }
+	eng.Inbox = demo.GitHub{Home: home}
+	for _, f := range setup {
+		f(eng, home)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	// Cleanups run last-registered first, so the engine stops writing into
+	// home before TempDir removes it.
+	t.Cleanup(func() { cancel(); eng.Wait() })
 	eng.Start(ctx, 2, time.Hour)
 	return eng, home
 }
@@ -90,6 +96,15 @@ func TestAssignedPullRequestsAreReadWithoutBeingAsked(t *testing.T) {
 	}
 	if hot != 13 {
 		t.Errorf("hot lines for d1 = %d, want the 13 added lines of the retry loop", hot)
+	}
+	// Other reviewers' threads reach the agent.
+	b, err := os.ReadFile(filepath.Join(filepath.Dir(v.OutDir), "conversation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conv model.Conversation
+	if err := json.Unmarshal(b, &conv); err != nil || len(conv.Threads) != 1 || conv.Threads[0].Comments[0].Author != "lee-k" {
+		t.Errorf("conversation.json = %s (%v)", b, err)
 	}
 	if st := eng.List(); len(st.Reviews) != 3 || st.Reviews[0].Key != key {
 		t.Errorf("queue should lead with the PR that has the most at stake, got %+v", st.Reviews)

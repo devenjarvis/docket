@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/devenjarvis/docket/internal/tend"
 )
 
 type frame struct {
@@ -99,6 +101,36 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 				sb.WriteString(b.Text)
 			}
 			prompt := sb.String()
+			if strings.HasPrefix(prompt, tend.GatePrefix) {
+				say(p.SessionID, gateAnswer(prompt))
+				send(frame{ID: f.ID, Result: raw(map[string]string{"stopReason": "end_turn"})})
+				continue
+			}
+			if strings.HasPrefix(prompt, tend.PromptPrefix) {
+				dir, out := tendDirs(prompt)
+				var pr struct {
+					Number int `json:"number"`
+				}
+				if b, err := os.ReadFile(filepath.Join(dir, "pr.json")); err == nil {
+					_ = json.Unmarshal(b, &pr)
+				}
+				for i, s := range []struct{ title, kind string }{
+					{"Reading the threads and the failed log", "read"},
+					{"Running the failing test", "execute"},
+					{"Committing the fixes", "edit"},
+					{"Running the tests again", "execute"},
+					{"Writing the plan", "edit"},
+				} {
+					tool(p.SessionID, i+1, s.title, s.kind)
+				}
+				if body := tendPlan(pr.Number); body == "" {
+					say(p.SessionID, "The demo agent has nothing to do on this pull request.")
+				} else if _, msg := call("fs/write_text_file", map[string]any{"sessionId": p.SessionID, "path": filepath.Join(out, "plan.json"), "content": body}); msg != "" {
+					say(p.SessionID, "Could not write the plan: "+msg)
+				}
+				send(frame{ID: f.ID, Result: raw(map[string]string{"stopReason": "end_turn"})})
+				continue
+			}
 			if strings.HasPrefix(prompt, "A reviewer is reading") {
 				time.Sleep(step)
 				tool(p.SessionID, 1, "Searching the three receiver repositories", "search")
@@ -149,4 +181,62 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 		}
 	}
 	return sc.Err()
+}
+
+// tendDirs pulls the input and output directories out of a tend prompt.
+func tendDirs(prompt string) (dir, out string) {
+	for _, ln := range strings.Split(prompt, "\n") {
+		if i := strings.Index(ln, "/pr.json"); i >= 0 && dir == "" {
+			j := strings.LastIndexAny(ln[:i], "` ")
+			dir = ln[j+1 : i]
+		}
+		if i := strings.Index(ln, "/plan.json"); i >= 0 && out == "" {
+			j := strings.LastIndexAny(ln[:i], "` ")
+			out = ln[j+1 : i]
+		}
+	}
+	return dir, out
+}
+
+func tendPlan(number int) string {
+	var p map[string]any
+	switch number {
+	case 318:
+		p = map[string]any{
+			"summary": "Renamed curMeta as sam-t asked, and found the test failure: Refresh writes into a map that is nil until the first load. The fix for that is committed; the refresh interval question is yours.",
+			"actions": []map[string]any{
+				{"id": "a1", "kind": "fix", "commit": commitRename, "threads": []string{"T_318_1"}, "why": "Renames curMeta to currencyMeta in its two uses. go build and go vet pass."},
+				{"id": "a2", "kind": "reply", "thread": "T_318_1", "stance": "agrees", "body": "Renamed to `currencyMeta`.", "why": "Says the rename is done."},
+				{"id": "a3", "kind": "resolve", "thread": "T_318_1", "why": "The rename answers the thread fully."},
+				{"id": "a4", "kind": "fix", "commit": commitNilMap, "checks": []string{"CR_test"}, "why": "TestSettleUsesCachedMeta panics because Refresh writes into currencyMeta before Load has made it. Refresh now makes the map when it is nil. The test passes locally."},
+				{"id": "a5", "kind": "reply", "thread": "T_318_2", "stance": "asks", "body": "The interval is hourly for now. Making it configurable means a new setting in the ops config: in this PR, or a follow-up?", "why": "Making it configurable is a design choice, so this asks instead of changing code."},
+			},
+		}
+	case 2230:
+		p = map[string]any{
+			"summary": "main renamed DatePicker's zone handling while this moved the helpers. I merged main into the branch and kept both changes.",
+			"actions": []map[string]any{
+				{"id": "a1", "kind": "merge-base", "commit": commitMerge, "why": "One conflict, in DatePicker.tsx: kept the new import path from this branch and the UTC default from main. The tests pass."},
+			},
+		}
+	default:
+		return ""
+	}
+	b, _ := json.MarshalIndent(p, "", "  ")
+	return string(b)
+}
+
+// gateAnswer is the scripted classifier: a rename and the notes about it run
+// on their own; a change to how the cache starts goes to the author.
+func gateAnswer(prompt string) string {
+	switch {
+	case strings.Contains(prompt, "make(map"):
+		return `{"decision": "ask", "reason": "It changes how the cache starts up, not only something a reviewer named. Worth a look."}`
+	case strings.Contains(prompt, "kind: reply"):
+		return `{"decision": "auto", "reason": "A short note that the requested rename was made."}`
+	case strings.Contains(prompt, "kind: resolve"):
+		return `{"decision": "auto", "reason": "The rename answers the thread fully."}`
+	default:
+		return `{"decision": "auto", "reason": "A rename the reviewer asked for, and nothing else."}`
+	}
 }

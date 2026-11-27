@@ -78,11 +78,11 @@ func Parse(text string) []File {
 			cur.Binary = true
 		case hunk == nil && strings.HasPrefix(ln, "--- "):
 			if p := strings.TrimPrefix(ln, "--- a/"); p != ln && cur.Status == "deleted" {
-				cur.Path = p
+				cur.Path = strings.TrimSuffix(p, "\t")
 			}
 		case hunk == nil && strings.HasPrefix(ln, "+++ "):
 			if p := strings.TrimPrefix(ln, "+++ b/"); p != ln {
-				cur.Path = p
+				cur.Path = strings.TrimSuffix(p, "\t")
 			}
 		case strings.HasPrefix(ln, "@@ "):
 			m := hunkRe.FindStringSubmatch(ln)
