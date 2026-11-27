@@ -60,6 +60,14 @@ type Agent struct {
 	// RejectSetModel makes session/set_model answer with an error, the way an
 	// agent without the unstable method does.
 	RejectSetModel bool
+	// Usage, when set, is sent as the usage of every prompt turn (the draft
+	// end-turn token usage shape: a `usage` field on the prompt response).
+	Usage map[string]any
+	// CostPerTurn, when set, is added to the session's running cost after
+	// every turn and sent as a usage_update in USD.
+	CostPerTurn float64
+
+	costs map[string]float64
 
 	mu        sync.Mutex
 	w         io.Writer
@@ -468,7 +476,23 @@ func (a *Agent) prompt(f frame, crash func()) {
 			time.Sleep(delay)
 		}
 	}
-	a.respond(f.ID, map[string]string{"stopReason": "end_turn"})
+	if a.CostPerTurn > 0 {
+		a.mu.Lock()
+		if a.costs == nil {
+			a.costs = map[string]float64{}
+		}
+		a.costs[p.SessionID] += a.CostPerTurn
+		total := a.costs[p.SessionID]
+		a.mu.Unlock()
+		a.notify("session/update", map[string]any{"sessionId": p.SessionID, "update": map[string]any{
+			"sessionUpdate": "usage_update", "used": 1000, "size": 200000, "cost": map[string]any{"amount": total, "currency": "USD"},
+		}})
+	}
+	res := map[string]any{"stopReason": "end_turn"}
+	if a.Usage != nil {
+		res["usage"] = a.Usage
+	}
+	a.respond(f.ID, res)
 }
 
 func (a *Agent) followPlan(session string) {

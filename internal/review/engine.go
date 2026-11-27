@@ -18,6 +18,7 @@ import (
 	"github.com/devenjarvis/docket/internal/config"
 	"github.com/devenjarvis/docket/internal/diff"
 	"github.com/devenjarvis/docket/internal/gh"
+	"github.com/devenjarvis/docket/internal/ledger"
 	"github.com/devenjarvis/docket/internal/model"
 	"github.com/devenjarvis/docket/internal/repo"
 	"github.com/devenjarvis/docket/internal/rules"
@@ -34,18 +35,28 @@ type Engine struct {
 	// Branches, when set, gives the agent writable checkouts of the user's
 	// own branches, so it can fix their pull requests. Set it before Start.
 	Branches repo.Brancher
-	// TendMode returns auto, ask or off: whether the agent acts on the
-	// user's pull requests on its own when that is safe.
-	TendMode func() string
+	// TendMode returns auto, ask or off for a repository (owner/name):
+	// whether the agent acts on the user's pull requests there on its own
+	// when that is safe.
+	TendMode func(repo string) string
 	Rules    *rules.Store
 	Hub      *Hub
 	// Agent returns the command that starts the user's ACP agent and its
 	// display name; an empty command means none is set up.
 	Agent func() (command, name string)
-	// RunCode reports whether the agent may execute the repository's code.
-	RunCode func() bool
+	// RunCode reports whether the agent may execute a repository's code.
+	RunCode func(repo string) bool
+	// RepoOff, when set, reports whether the user turned Docket off for a
+	// repository: its pull requests are then not read, listed or worked on.
+	RepoOff func(repo string) bool
 	// Notify, when set, raises a desktop notification.
 	Notify func(title, body, key string)
+	// Notifies, when set, says whether notifications of a kind (see
+	// config.Notify*) are on.
+	Notifies func(kind string) bool
+	// Ledger, when set, receives a line for each read, question, review
+	// posted, run and step, for Settings' metrics.
+	Ledger *ledger.Ledger
 	// Logf receives one line per notable event.
 	Logf func(format string, args ...any)
 
@@ -75,7 +86,7 @@ func New(home string, ghc gh.Client, prep repo.Preparer, rs *rules.Store) *Engin
 		reviews: map[string]*model.Review{}, diffs: map[string][]diff.File{},
 		queue: make(chan string, 256), queued: map[string]bool{}, sweeping: map[string]bool{},
 		cancels: map[string]context.CancelFunc{}, tending: map[string]bool{},
-		RunCode: func() bool { return true },
+		RunCode: func(string) bool { return true },
 		Logf:    func(string, ...any) {},
 	}
 	entries, _ := os.ReadDir(e.stateDir())
@@ -100,6 +111,45 @@ func New(home string, ghc gh.Client, prep repo.Preparer, rs *rules.Store) *Engin
 		e.reviews[r.PR.Key()] = &r
 	}
 	return e
+}
+
+// repoOf is the owner/name part of a pull request key.
+func repoOf(key string) string {
+	if i := strings.LastIndexByte(key, '#'); i >= 0 {
+		return key[:i]
+	}
+	return key
+}
+
+// numberOf is the pull request number in a key, or 0.
+func numberOf(key string) int {
+	n := 0
+	if i := strings.LastIndexByte(key, '#'); i >= 0 {
+		fmt.Sscanf(key[i+1:], "%d", &n)
+	}
+	return n
+}
+
+func (e *Engine) off(repo string) bool { return e.RepoOff != nil && e.RepoOff(repo) }
+
+func (e *Engine) runsIn(repo string) bool { return e.RunCode == nil || e.RunCode(repo) }
+
+// notify raises a notification of kind, unless the user turned that kind off.
+func (e *Engine) notify(kind, title, body, key string) {
+	if e.Notify == nil || (e.Notifies != nil && !e.Notifies(kind)) {
+		return
+	}
+	e.Notify(title, body, key)
+}
+
+// record appends an entry to the ledger; a failure only goes to the log.
+func (e *Engine) record(en ledger.Entry) {
+	if e.Ledger == nil {
+		return
+	}
+	if err := e.Ledger.Add(en); err != nil {
+		e.Logf("could not write the ledger: %v", err)
+	}
 }
 
 func fix(r *model.Review) {
@@ -239,6 +289,9 @@ func (e *Engine) sync(ctx context.Context) error {
 	waiting := map[string]bool{}
 	for _, found := range list {
 		key := found.Key()
+		if e.off(found.Owner + "/" + found.Repo) {
+			continue
+		}
 		waiting[key] = true
 		e.mu.Lock()
 		cur := e.reviews[key]
@@ -260,7 +313,17 @@ func (e *Engine) sync(ctx context.Context) error {
 	// are partway through it or added it by hand.
 	e.mu.Lock()
 	for key, r := range e.reviews {
-		if waiting[key] || contains(r.PR.Why, "added by hand") {
+		off := e.off(r.PR.Owner + "/" + r.PR.Repo)
+		if !off && (waiting[key] || contains(r.PR.Why, "added by hand")) {
+			continue
+		}
+		if off {
+			// The user turned the repository off: everything in it goes.
+			if c := e.cancels[key]; c != nil {
+				c()
+			}
+			delete(e.reviews, key)
+			_ = os.Remove(e.statePath(r.PR))
 			continue
 		}
 		if r.Status == "posted" || len(r.Answers) == 0 {
@@ -320,6 +383,9 @@ func (e *Engine) Add(ctx context.Context, ref string) (string, error) {
 	owner, name, n, ok := model.ParseRef(strings.TrimSpace(ref))
 	if !ok {
 		return "", errors.New("that does not look like a pull request: use owner/repo#123 or its URL")
+	}
+	if e.off(owner + "/" + name) {
+		return "", fmt.Errorf("Docket is turned off for %s/%s: turn it on in Settings, under Policy", owner, name)
 	}
 	pr, err := e.GH.PR(ctx, owner, name, n)
 	if err != nil {

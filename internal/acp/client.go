@@ -139,6 +139,8 @@ type Client struct {
 	iso       isolationCounts
 	model     string
 	models    []ModelInfo
+	// usage is what each session used, as the agent reported it.
+	usage map[string]*sessionUsage
 
 	// CancelGrace is how long Prompt keeps waiting for the agent's
 	// stopReason after sending session/cancel.
@@ -294,6 +296,7 @@ func (c *Client) NewSession(ctx context.Context, cwd string, servers ...MCPServe
 	if m := out.Models; m != nil && m.CurrentModelID != "" {
 		c.model = modelName(models, m.CurrentModelID)
 	}
+	c.usageFor(out.SessionID).model = c.model
 	c.mu.Unlock()
 	return out.SessionID, nil
 }
@@ -335,6 +338,7 @@ func (c *Client) SetModel(ctx context.Context, sessionID, modelID string) error 
 	}
 	c.mu.Lock()
 	c.model = modelName(c.models, modelID)
+	c.usageFor(sessionID).model = c.model
 	c.mu.Unlock()
 	return nil
 }
@@ -407,9 +411,13 @@ func (c *Client) Prompt(ctx context.Context, sessionID, text string, h SessionHa
 	defer stopCall()
 	go func() {
 		var out struct {
-			StopReason string `json:"stopReason"`
+			StopReason string          `json:"stopReason"`
+			Usage      json.RawMessage `json:"usage"`
 		}
 		err := c.conn.Call(callCtx, "session/prompt", params, &out)
+		if err == nil {
+			c.noteTokens(sessionID, out.Usage)
+		}
 		resCh <- result{out.StopReason, err}
 	}()
 
@@ -451,6 +459,9 @@ func (c *Client) HandleNotification(method string, params json.RawMessage) {
 	var u SessionUpdate
 	if json.Unmarshal(p.Update, &u) != nil {
 		return
+	}
+	if u.Kind == "usage_update" || u.Kind == "state_update" {
+		c.noteUpdate(p.SessionID, p.Update)
 	}
 	h := c.handlerFor(p.SessionID)
 	if h == nil {

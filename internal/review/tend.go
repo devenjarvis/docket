@@ -13,6 +13,7 @@ import (
 
 	"github.com/devenjarvis/docket/internal/acp"
 	"github.com/devenjarvis/docket/internal/config"
+	"github.com/devenjarvis/docket/internal/ledger"
 	"github.com/devenjarvis/docket/internal/model"
 	"github.com/devenjarvis/docket/internal/repo"
 	"github.com/devenjarvis/docket/internal/tend"
@@ -39,11 +40,11 @@ const (
 	TendOff  = "off"
 )
 
-func (e *Engine) tendMode() string {
+func (e *Engine) tendMode(repo string) string {
 	if e.TendMode == nil {
 		return TendAuto
 	}
-	switch m := e.TendMode(); m {
+	switch m := e.TendMode(repo); m {
 	case TendAsk, TendOff:
 		return m
 	}
@@ -95,7 +96,7 @@ func (e *Engine) maybeTendLocked(viewer string, prev, next *model.Mine) bool {
 			fresh = true
 		}
 	}
-	if !fresh || e.tendMode() == TendOff || e.Branches == nil || e.tending[next.PR.Key()] || next.AutoRuns >= maxAutoRuns {
+	if !fresh || e.tendMode(next.PR.Owner+"/"+next.PR.Repo) == TendOff || e.Branches == nil || e.tending[next.PR.Key()] || next.AutoRuns >= maxAutoRuns {
 		return false
 	}
 	if t := next.Tend; t != nil && waiting(t) > 0 {
@@ -122,9 +123,12 @@ func (e *Engine) Tend(key string) error {
 }
 
 func (e *Engine) startTend(key string, notes []string, auto bool) error {
-	mode := e.tendMode()
+	if e.off(repoOf(key)) {
+		return errors.New("Docket is turned off for this repository: change it in Settings")
+	}
+	mode := e.tendMode(repoOf(key))
 	if mode == TendOff {
-		return errors.New("the agent is turned off for your pull requests: change it in Settings")
+		return errors.New("the agent is turned off for your pull requests here: change it in Settings")
 	}
 	if e.Branches == nil || e.Inbox == nil {
 		return errors.New("this build cannot work on pull requests")
@@ -260,6 +264,29 @@ func tendPolicy(b repo.Branch) *acp.Policy {
 func (e *Engine) runTend(parent context.Context, key string, m model.Mine, command, agentName, mode string) {
 	ctx, cancel := context.WithTimeout(parent, tendTimeout)
 	defer cancel()
+	repoName := m.PR.Owner + "/" + m.PR.Repo
+	runCode := e.runsIn(repoName)
+	started := time.Now()
+	var client *acp.Client
+	entry := ledger.Entry{Kind: ledger.KindTend, Repo: repoName, Number: m.PR.Number, Agent: agentName,
+		Auto: m.AutoRuns > 0, Stopped: m.AutoRuns >= maxAutoRuns}
+	recorded := false
+	record := func(failed bool) {
+		if recorded {
+			return
+		}
+		recorded = true
+		entry.Failed, entry.Seconds = failed, int(time.Since(started).Seconds())
+		if client != nil {
+			entry.Model, entry.Usage = client.Model(), client.Usage()
+		}
+		e.record(entry)
+	}
+	defer func() {
+		if parent.Err() == nil {
+			record(true)
+		}
+	}()
 	moved, released := false, false
 	defer func() {
 		e.mu.Lock()
@@ -333,8 +360,9 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 
 	e.tendActivity(key, "Starting "+agentName)
 	var stderr bytes.Buffer
-	client, err := acp.Start(ctx, command, b.Work, &stderr)
+	client, err = acp.Start(ctx, command, b.Work, &stderr)
 	if err != nil {
+		client = nil
 		failed(fmt.Errorf("could not start %s: %w%s", agentName, err, tail(stderr.String())))
 		return
 	}
@@ -345,7 +373,7 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 		return
 	}
 	client.SetPolicy(session, tendPolicy(b))
-	h := &handler{runCode: e.RunCode(), onActivity: func(s string) { e.tendActivity(key, s) }}
+	h := &handler{runCode: runCode, onActivity: func(s string) { e.tendActivity(key, s) }}
 
 	threads, checkIDs := map[string]bool{}, map[string]bool{}
 	for _, t := range m.Conversation.Threads {
@@ -356,7 +384,7 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 	}
 	onTop := func(sha string) bool { return e.Branches.OnTop(ctx, b, sha) }
 	prompt := tend.Prompt(tend.PromptData{Dir: b.Dir, Work: b.Work, Scratch: b.Scratch, Out: b.Out, Head: b.Start,
-		Login: e.Viewer(), RunCode: e.RunCode(), Notes: inputs["notes.json"] != nil})
+		Login: e.Viewer(), RunCode: runCode, Notes: inputs["notes.json"] != nil})
 	var plan *model.TendPlan
 	for attempt := 0; ; attempt++ {
 		stop, err := client.Prompt(ctx, session, prompt, h)
@@ -419,6 +447,8 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 	e.updateTend(key, func(_ *model.Mine, t *model.Tend) {
 		t.Summary, t.Actions, t.Model, t.Activity = plan.Summary, actions, client.Model(), "Carrying out what can run"
 	})
+	entry.Steps = len(actions)
+	record(false)
 	for _, a := range actions {
 		if a.Verdict.Decision == model.GateAuto {
 			if (a.Kind == model.ActReply || a.Kind == model.ActResolve) && !e.fixLanded(key, a) {
@@ -456,7 +486,7 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 			}
 		}
 	})
-	if e.Notify != nil && done+asks > 0 {
+	if done+asks > 0 {
 		var parts []string
 		if done > 0 {
 			parts = append(parts, fmt.Sprintf("Your agent did %d step%s.", done, plural(done)))
@@ -464,7 +494,7 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 		if asks > 0 {
 			parts = append(parts, fmt.Sprintf("%d wait%s for you.", asks, verbS(asks)))
 		}
-		e.Notify(fmt.Sprintf("%s/%s #%d", pr.Owner, pr.Repo, pr.Number), strings.Join(parts, " "), key)
+		e.notify(config.NotifyTend, fmt.Sprintf("%s/%s #%d", pr.Owner, pr.Repo, pr.Number), strings.Join(parts, " "), key)
 	}
 }
 
@@ -688,6 +718,7 @@ func (e *Engine) carryOut(ctx context.Context, key, id, body string) error {
 			x.State, x.Result = model.StateFailed, err.Error()
 		} else {
 			x.State, x.Result, x.Undo = model.StateDone, result, undo
+			e.recordStep(pr, a, ledger.StepApproved)
 		}
 	}
 	if err == nil && newTip != tip {
@@ -749,6 +780,7 @@ func (e *Engine) Decide(ctx context.Context, key, id, choice, body, note string)
 	}
 	a := &t.Actions[idx]
 	a.State, a.At = model.StateRejected, time.Now()
+	e.recordStep(m.PR, *a, ledger.StepRejected)
 	text := fmt.Sprintf("You proposed %s (%s): %s", a.ID, a.Kind, a.Why)
 	if n := strings.TrimSpace(note); n != "" {
 		text += " The author sent it back: " + n
@@ -770,7 +802,7 @@ func (e *Engine) Decide(ctx context.Context, key, id, choice, body, note string)
 	notes := append([]string(nil), t.Notes...)
 	e.saveMineLocked(m)
 	e.mu.Unlock()
-	if replan && e.tendMode() != TendOff {
+	if replan && e.tendMode(repoOf(key)) != TendOff {
 		return e.startTend(key, notes, false)
 	}
 	return nil
@@ -900,6 +932,7 @@ func (e *Engine) Undo(ctx context.Context, key, id string) error {
 	e.updateTend(key, func(m *model.Mine, t *model.Tend) {
 		if x := findAction(t, id); x != nil {
 			x.State, x.Result, x.At = model.StateUndone, "Undone.", time.Now()
+			e.recordStep(m.PR, *x, ledger.StepUndone)
 		}
 		if newTip != tip {
 			t.Tip, m.PR.HeadSHA = newTip, newTip
@@ -922,4 +955,17 @@ func findAction(t *model.Tend, id string) *model.TendAction {
 		}
 	}
 	return nil
+}
+
+// recordStep writes a step's outcome to the ledger. A step the gate let go
+// ahead and that was carried out counts as auto, not approved.
+func (e *Engine) recordStep(pr model.PR, a model.TendAction, outcome string) {
+	en := ledger.Entry{Kind: ledger.KindStep, Repo: pr.Owner + "/" + pr.Repo, Number: pr.Number, Step: a.Kind, Outcome: outcome}
+	if v := a.Verdict; v != nil {
+		if outcome == ledger.StepApproved && v.Decision == model.GateAuto {
+			en.Outcome = ledger.StepAuto
+		}
+		en.Floor = v.Floor
+	}
+	e.record(en)
 }

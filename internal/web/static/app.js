@@ -2,11 +2,12 @@ import { h, get, post, toast, plural, ago, tri } from "./dom.js";
 import { renderReview, reviewKeys, currentTimeTarget } from "./review.js";
 import { renderRules } from "./rules.js";
 import { renderMineList, renderMine } from "./mine.js";
+import { renderSettings, loadSettings, TABS } from "./settings.js";
 
 const app = document.getElementById("app");
-export const S = { st: null, review: null, draft: null, rules: null, mine: null, conv: null, route: {}, stale: false };
+export const S = { st: null, review: null, draft: null, rules: null, mine: null, conv: null, settings: null, route: {}, stale: false };
 
-// --- routes: #/, #/r/<owner>/<repo>/<n>/<sheet>[/<id>], #/mine, #/m/<owner>/<repo>/<n>, #/rules, #/settings
+// --- routes: #/, #/r/<owner>/<repo>/<n>/<sheet>[/<id>], #/mine, #/m/<owner>/<repo>/<n>, #/rules, #/settings[/<tab>]
 function parse() {
   const p = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (p[0] === "r" && p.length >= 4) {
@@ -15,7 +16,7 @@ function parse() {
   if (p[0] === "m" && p.length >= 4) return { name: "minepr", key: `${p[1]}/${p[2]}#${p[3]}` };
   if (p[0] === "mine") return { name: "mine" };
   if (p[0] === "rules") return { name: "rules" };
-  if (p[0] === "settings") return { name: "settings" };
+  if (p[0] === "settings") return { name: "settings", tab: TABS.some(([t]) => t === p[1]) ? p[1] : "metrics" };
   return { name: "queue" };
 }
 export function href(key, sheet, id) {
@@ -38,6 +39,7 @@ async function load() {
     }
     S.mine = S.route.name === "minepr" ? await get("/api/mine/pr?key=" + encodeURIComponent(S.route.key)) : null;
     if (S.route.name === "rules") S.rules = await get("/api/rules");
+    if (S.route.name === "settings") await loadSettings(S);
   } catch (e) {
     if (S.route.name === "review") { toast(e.message); go("#/"); return; }
     if (S.route.name === "minepr") { toast(e.message); go("#/mine"); return; }
@@ -49,7 +51,7 @@ async function load() {
 // refresh re-reads the server without losing what the reviewer is typing.
 export async function refresh(force) {
   const el = document.activeElement;
-  if (!force && el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && el.type === "text"))) {
+  if (!force && el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && (el.type === "text" || el.type === "number")))) {
     S.stale = true;
     return;
   }
@@ -64,7 +66,7 @@ function render() {
   let view;
   if (S.route.name === "review" && S.review) view = renderReview(S);
   else if (S.route.name === "rules") view = [masthead(), renderRules(S)];
-  else if (S.route.name === "settings") view = [masthead(), settings()];
+  else if (S.route.name === "settings") view = [masthead(), renderSettings(S)];
   else if (S.route.name === "minepr" && S.mine) view = renderMine(S);
   else if (S.route.name === "mine") view = [masthead(), h("div.sheet", inboxTabs("mine"), h("div.body", renderMineList(S)))];
   else view = [masthead(), queue()];
@@ -85,7 +87,8 @@ function masthead() {
       h("div.wide", h("span.label", "GitHub"), h("span.cell-v", { class: "v-mono" },
         q.syncError ? "sync failed" : "checked " + ago(q.lastSync))),
       h("a", { href: "#/rules", class: "plain" }, h("span.label", "Rulebook"), h("span.cell-v", plural(S.st.rules, "rule"))),
-      h("a", { href: "#/settings", class: "plain" }, h("span.label", "Settings"), h("span.cell-v", S.st.demo ? "demo mode" : "open"))));
+      h("a", { href: "#/settings", class: "plain", "aria-current": S.route.name === "settings" ? "page" : null },
+        h("span.label", "Settings"), h("span.cell-v", S.st.demo ? "demo mode" : "metrics, agent, policy"))));
 }
 
 // inboxTabs switches between the pull requests waiting on the user's review
@@ -156,7 +159,7 @@ function queue() {
   return h("div.sheet", inboxTabs("queue"), h("div.body",
     S.st.demo && h("div.banner", "Demo mode: sample pull requests (three to review, three of yours) and a scripted agent. Nothing is read from or posted to GitHub."),
     q.syncError && h("div.banner.red", q.syncError),
-    !S.st.agent.command && h("div.banner.red", "No agent is set up, so nothing can be read. ", h("a", { href: "#/settings" }, "Pick one in Settings.")),
+    !S.st.agent.command && h("div.banner.red", "No agent is set up, so nothing can be read. ", h("a", { href: "#/settings/agent" }, "Pick one in Settings.")),
     h("div.tally",
       h("div", h("div.label", "Waiting on you"), h("div.big", open.length), h("div.small.muted", "pull requests, found automatically")),
       h("div", h("div.label", "Lines that need a person"), h("div.big.red", need), h("div.small.muted", total ? `of ${total} changed (${Math.round(need / total * 100)}%)` : "")),
@@ -171,52 +174,6 @@ function queue() {
       h("span.small.muted", `Checks GitHub every ${Math.round(S.st.config.pollSeconds / 60) || 1} min for review requests and assignments. `,
         h("span.kbd", "j"), " ", h("span.kbd", "k"), " move between rows, ", h("span.kbd", "Enter"), " opens one."),
       h("button.btn.quiet.small", { onclick: async () => { try { await post("/api/sync"); } catch (e) { toast(e.message); } refresh(true); } }, "Check now"))));
-}
-
-// --- settings ----------------------------------------------------------------
-function settings() {
-  const c = S.st.config;
-  const save = async (patch) => { try { await post("/api/settings", patch); refresh(true); } catch (e) { toast(e.message); } };
-  const theme = localStorage.getItem("docket-theme") || "auto";
-  const setTheme = (t) => {
-    localStorage.setItem("docket-theme", t);
-    document.documentElement.dataset.theme = t === "auto" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "blueprint" : "whiteprint") : t;
-    render();
-  };
-  const cmd = h("input.field.mono", { value: c.agentCommand || "", placeholder: "a command that starts an ACP agent on stdio", "aria-label": "Custom agent command" });
-  return h("div.sheet", h("div.body",
-    h("h1.title", "Settings"),
-    h("div.block.rule-top",
-      h("h2.h2", "Agent"),
-      h("p.lede", "Docket never calls a model itself. It starts the coding agent you already use, over the Agent Client Protocol, under your own sign-in."),
-      h("div.scroll-x", h("table.reg", h("tbody", S.st.agents.map((a) => h("tr",
-        h("td", h("b", a.name), h("div.mono.small.muted", a.command)),
-        h("td", a.ready ? h("span.stamp", "Ready") : a.found ? h("span.stamp.open", "Needs its ACP adapter") : h("span.stamp.faint", "Not found")),
-        h("td.small.muted", a.ready ? "" : a.install),
-        h("td.r", h("button.btn.small" + ((c.agent === a.id && !c.agentCommand) || (!c.agent && !c.agentCommand && S.st.agent.command === a.command) ? ".primary" : ""),
-          { disabled: !a.ready, onclick: () => save({ agent: a.id }) }, "Use"))))))),
-      h("div.row", { class: "one-line" }, cmd, h("button.btn", { onclick: () => save({ agentCommand: cmd.value }) }, "Use this command"))),
-    h("div.block.rule-top",
-      h("h2.h2", "What the agent may do"),
-      h("label.check", h("input", { type: "checkbox", checked: c.runCode, onchange: (e) => save({ runCode: e.target.checked }) }),
-        "Let the agent build and run the pull request's code in its throwaway checkouts"),
-      h("p.small.muted", { class: "measure" }, "Running the code is what lets a claim be proved instead of argued, and it means code from the pull request executes on this computer. Turn it off for repositories whose authors you would not run code from; the agent then reads and searches only, and marks what it could not prove.")),
-    h("div.block.rule-top",
-      h("h2.h2", "Your pull requests"),
-      h("p.lede", "When a reviewer comments or a check fails on a pull request you wrote, the agent can fix it, answer, and bring the branch up to date. It pushes new commits on top of your branch and never rewrites it."),
-      [["auto", "Act on its own when it is safe", "A small model checks each step. A rename a reviewer asked for goes ahead; a dependency change, a CI edit, a large diff or a reply that pushes back waits for you. Everything it did has an Undo."],
-       ["ask", "Always ask me first", "The agent plans every step, and none runs until you approve it."],
-       ["off", "Off", "The agent never works on your pull requests."]].map(([v, label, text]) =>
-        h("label.check", { class: "top" },
-          h("input", { type: "radio", name: "tend", checked: (c.tend || "auto") === v, onchange: () => save({ tend: v }) }),
-          h("span", h("b", label), h("div.small.muted", { class: "measure" }, text))))),
-    h("div.block.rule-top",
-      h("h2.h2", "Reviews"),
-      h("label.check", h("input", { type: "checkbox", checked: c.receipt, onchange: (e) => save({ receipt: e.target.checked }) }),
-        "Include the attention receipt in the review I post (what I read, what I took on the agent's proof)"),
-      h("div.row", { class: "mid" }, h("span", "Appearance"),
-        ["auto", "whiteprint", "blueprint"].map((t) => h("button.btn.small" + (theme === t ? ".primary" : ""), { onclick: () => setTheme(t) }, t)))),
-    h("p.small.muted.mono", "Data: " + S.st.home)));
 }
 
 // --- time: active seconds per decision or section -----------------------------

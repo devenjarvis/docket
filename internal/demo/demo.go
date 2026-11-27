@@ -112,6 +112,7 @@ func (Checkout) Release(context.Context, model.PR, repo.Workspace) {}
 // Seed fills an empty rulebook and reviewer map with believable history, so
 // the rulebook screen and the context page have something to show.
 func Seed(home string, rs *rules.Store) {
+	seedHistory(home)
 	if all, _ := rs.List(); len(all) > 0 {
 		return
 	}

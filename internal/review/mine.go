@@ -77,6 +77,9 @@ func (e *Engine) syncMine(ctx context.Context) error {
 	open := map[string]bool{}
 	for _, found := range list {
 		key := found.Key()
+		if e.off(found.Owner + "/" + found.Repo) {
+			continue
+		}
 		open[key] = true
 		if err := e.refreshMine(ctx, found, !first); err != nil {
 			e.Logf("could not load %s: %v", key, err)
@@ -168,20 +171,28 @@ func (e *Engine) refreshMine(ctx context.Context, found model.PR, notify bool) e
 		}
 	}
 
-	if notify && e.Notify != nil {
-		if body := news(viewer, prev, next); body != "" {
-			e.Notify(fmt.Sprintf("%s/%s #%d", pr.Owner, pr.Repo, pr.Number), body, key)
+	if notify {
+		lane, activity := news(viewer, prev, next)
+		var on []string
+		if lane != "" && (e.Notifies == nil || e.Notifies(config.NotifyLane)) {
+			on = append(on, lane)
+		}
+		if activity != "" && (e.Notifies == nil || e.Notifies(config.NotifyActivity)) {
+			on = append(on, activity)
+		}
+		if len(on) > 0 && e.Notify != nil {
+			e.Notify(fmt.Sprintf("%s/%s #%d", pr.Owner, pr.Repo, pr.Number), strings.Join(on, " "), key)
 		}
 	}
 	return nil
 }
 
 // news says what changed on an own pull request that the user would want to
-// hear about: a lane it moved into that wants them, or something someone
+// hear about: a lane it moved into that wants them, and something someone
 // else said. A pull request seen for the first time is not news.
-func news(viewer string, prev, next *model.Mine) string {
+func news(viewer string, prev, next *model.Mine) (lane, activity string) {
 	if prev == nil {
-		return ""
+		return "", ""
 	}
 	var parts []string
 	if next.Lane != prev.Lane {
@@ -244,12 +255,9 @@ func news(viewer string, prev, next *model.Mine) string {
 		}
 	}
 	if len(order) > 0 {
-		parts = append(parts, strings.Join(order, ", ")+".")
+		activity = strings.Join(order, ", ") + "."
 	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, " "), activity
 }
 
 var laneRank = map[string]int{model.LaneNeedsYou: 0, model.LaneReady: 1, model.LaneWaiting: 2}

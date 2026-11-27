@@ -15,6 +15,7 @@ import (
 	"github.com/devenjarvis/docket/internal/brief"
 	"github.com/devenjarvis/docket/internal/config"
 	"github.com/devenjarvis/docket/internal/diff"
+	"github.com/devenjarvis/docket/internal/ledger"
 	"github.com/devenjarvis/docket/internal/model"
 	"github.com/devenjarvis/docket/internal/owners"
 	"github.com/devenjarvis/docket/internal/repo"
@@ -88,6 +89,23 @@ func (e *Engine) read(parent context.Context, key string) {
 		return
 	}
 	started := time.Now()
+	repoName := pr.Owner + "/" + pr.Repo
+	runCode := e.runsIn(repoName)
+	var client *acp.Client
+	entry := ledger.Entry{Kind: ledger.KindRead, Repo: repoName, Number: pr.Number, Agent: agentName, Reread: previous != nil}
+	recorded := false
+	defer func() {
+		// A read that ended any way but done is recorded as failed, unless
+		// a newer push or a re-read superseded it, or the app is quitting.
+		if recorded || parent.Err() != nil || errors.Is(ctx.Err(), context.Canceled) {
+			return
+		}
+		entry.Failed, entry.Seconds = true, int(time.Since(started).Seconds())
+		if client != nil {
+			entry.Model, entry.Usage = client.Model(), client.Usage()
+		}
+		e.record(entry)
+	}()
 	e.setActivity(key, "Checking out the branch")
 	ws, diffText, err := e.Prep.Prepare(ctx, pr)
 	if err != nil {
@@ -160,8 +178,9 @@ func (e *Engine) read(parent context.Context, key string) {
 
 	e.setActivity(key, "Starting "+agentName)
 	var stderr bytes.Buffer
-	client, err := acp.Start(ctx, command, ws.Head, &stderr)
+	client, err = acp.Start(ctx, command, ws.Head, &stderr)
 	if err != nil {
+		client = nil
 		e.fail(key, fmt.Errorf("could not start %s (%s): %w%s", agentName, command, err, tail(stderr.String())))
 		return
 	}
@@ -172,11 +191,12 @@ func (e *Engine) read(parent context.Context, key string) {
 		return
 	}
 	client.SetPolicy(session, acp.ReviewPolicy(ws.Dir, ws.Head, ws.Base, ws.Scratch, ws.Out))
-	h := &handler{runCode: e.RunCode(), onActivity: func(s string) { e.setActivity(key, s) }}
+	h := &handler{runCode: runCode, onActivity: func(s string) { e.setActivity(key, s) }}
 
-	prompt := brief.Prompt(brief.PromptData{Workspace: ws, RunCode: e.RunCode(), Slice: slice != nil, Previous: previous != nil})
+	prompt := brief.Prompt(brief.PromptData{Workspace: ws, RunCode: runCode, Slice: slice != nil, Previous: previous != nil})
 	var b *model.Brief
 	for attempt := 0; ; attempt++ {
+		entry.Tries = attempt + 1
 		stop, err := client.Prompt(ctx, session, prompt, h)
 		if err != nil {
 			if ctx.Err() != nil && parent.Err() == nil && errors.Is(ctx.Err(), context.Canceled) {
@@ -240,13 +260,32 @@ func (e *Engine) read(parent context.Context, key string) {
 	e.save(r)
 	e.mu.Unlock()
 
-	if e.Notify != nil {
-		body := "Nothing needs your judgment."
-		if sum.Decisions > 0 {
-			body = fmt.Sprintf("%d decision%s for you, about %d min.", sum.Decisions, plural(sum.Decisions), max(sum.Minutes, 1))
+	entry.Model, entry.Seconds, entry.Usage = r.Model, r.ReadTook, client.Usage()
+	entry.Carried, entry.Isolation = len(keep), r.Isolation
+	entry.NeedLines, entry.TotalLines, entry.Decisions = sum.NeedLines, sum.TotalLines, sum.Decisions
+	for _, c := range b.Claims {
+		switch c.Status {
+		case model.Proved:
+			entry.Proved++
+		case model.Contradicted:
+			entry.Contradicted++
+		case model.Unproven:
+			entry.Unproven++
 		}
-		e.Notify(fmt.Sprintf("%s/%s #%d is ready", pr.Owner, pr.Repo, pr.Number), body, key)
 	}
+	for _, sec := range b.Sections {
+		if sec.Kind == model.Mechanical {
+			entry.Mechanical++
+		}
+	}
+	recorded = true
+	e.record(entry)
+
+	body := "Nothing needs your judgment."
+	if sum.Decisions > 0 {
+		body = fmt.Sprintf("%d decision%s for you, about %d min.", sum.Decisions, plural(sum.Decisions), max(sum.Minutes, 1))
+	}
+	e.notify(config.NotifyRead, fmt.Sprintf("%s/%s #%d is ready", pr.Owner, pr.Repo, pr.Number), body, key)
 	// Earlier heads of this PR are no longer needed.
 	if previous != nil {
 		old := previous.PR
@@ -435,10 +474,17 @@ func (e *Engine) askAgent(ctx context.Context, command string, ws repo.Workspace
 		return "", err
 	}
 	client.SetPolicy(session, acp.AskPolicy(ws.Dir, ws.Head, ws.Base, ws.Scratch, ws.Out))
-	h := &handler{runCode: e.RunCode(), onText: func(t string) {
+	repoName := repoOf(key)
+	runCode := e.runsIn(repoName)
+	h := &handler{runCode: runCode, onText: func(t string) {
 		e.Hub.Send(Event{Type: "ask", Key: key, ID: id, Text: t})
 	}}
-	if _, err := client.Prompt(ctx, session, brief.AskPrompt(ws, about, question, e.RunCode()), h); err != nil {
+	started := time.Now()
+	_, err = client.Prompt(ctx, session, brief.AskPrompt(ws, about, question, runCode), h)
+	en := ledger.Entry{Kind: ledger.KindAsk, Repo: repoName, Number: numberOf(key), Model: client.Model(),
+		Seconds: int(time.Since(started).Seconds()), Failed: err != nil, Usage: client.Usage()}
+	e.record(en)
+	if err != nil {
 		return "", err
 	}
 	if a := h.reply(); a != "" {

@@ -42,11 +42,34 @@ Each step goes through a gate before it runs. Fixed rules hold a step for you wh
 
 Steps that go ahead push to your branch as new commits on top, never with force. If you pushed in the meantime, the push fails and nothing is lost. Steps that wait show as cards with the diff or the reply text and the gate's reason: push or post it (you can edit a reply first), or send it back with a note the agent plans again with. Everything the agent did has an Undo: a revert commit on top, a deleted reply, or a reopened thread.
 
-Settings has three choices: act on its own when it is safe (the default), always ask first, or off.
+Settings has three choices: act on its own when it is safe (the default), always ask first, or off. Each can be set per repository.
+
+## Settings and metrics
+
+Settings is one sheet with five tabs.
+
+- **Metrics.** What Docket did over the last 7, 30 or 90 days, or all time:
+  - reviews signed per week, by verdict, and your time on each one, median and total, split across decisions, diff, brief and context.
+  - your time against the lines that needed you.
+  - how the agent's reads went: sent back by the validator, failed, read again after a push, claims proved and contradicted.
+  - your decisions: answered, edited, blocking, follow-up questions.
+  - how often each rule was kept or waved off.
+  - what the agent did on your own pull requests.
+  - the areas of each repository you know.
+- **What the agent cost.** Tokens and dollars per job (reading, questions, your pull requests) and per model. Docket reads what the agent reports over ACP: the session's cost in `usage_update`, and each turn's tokens in the draft end-turn `usage` field. When an agent reports tokens but no cost, Docket estimates the cost from the per-model prices you enter under Agent. The table says which figures are reported and which are estimated. Tokens from a model with no price and no reported cost are counted, but not in dollars.
+- **Agent.** Pick the agent or give a command, add folders to search for it, set how many pull requests are read at once, check that the agent starts, and set model prices.
+- **Policy.** Run code globally. Per repository, you can:
+  - **turn Docket off**, so its pull requests are not read, listed or worked on, and the ones already queued leave the queue.
+  - override run-code.
+  - override how the agent works on your pull requests.
+- **Reviews.** How often to check GitHub, the attention receipt, which desktop notifications you get, and appearance.
+- **Data.** What is on disk and how big it is. Remove review checkouts nothing needs, copy or download the metrics ledger, read the end of the log, or clear the ledger.
+
+Metrics come from `ledger.jsonl`, an append-only record Docket adds one line to for each finished read, question, posted review, run on your pull requests, and step outcome. Reviews leave `state/` once they leave the queue, so the ledger is the only history. It starts empty, on the day you first run a version that has it.
 
 ## What you should know before trusting it
 
-- **The agent runs the pull request's code on your computer.** That is what lets a claim be proved. Turn it off in Settings for repositories whose authors you would not run code from; the agent then only reads and searches.
+- **The agent runs the pull request's code on your computer.** That is what lets a claim be proved. Turn it off in Settings, under Policy, for repositories whose authors you would not run code from. The agent then only reads and searches. Or turn Docket off for such a repository altogether.
 - **On your own pull requests, "run code" gives the agent a shell in your branch's checkout.** It can then change git settings that Docket's own git reads when it undoes a fix. Turn run-code off if that matters for a repository; the gate still judges every change by its real diff.
 - **Directory limits are policy, not a sandbox.** Docket bounds what it reads, writes and runs on the agent's behalf. An agent that uses its own tools is bound only by its own permission prompts, which Docket answers for you (allow, inside the checkouts). The Brief says when that happened.
 - **The triage is an agent's judgment.** A section marked mechanical or verified is closed by default. Its proof is on the lid, and the spot-check picks a random hunk so the proof gets tested.
@@ -65,7 +88,8 @@ Everything is under `~/.docket` (`DOCKET_HOME` to move it):
 | `reviews/<owner>/<repo>/<n>/<sha>/` | The checkouts, the diff, the agent's probes (`out/`). Removed once the pull request leaves your queue, or once a newer head has been read |
 | `repos/` | Blobless bare clones |
 | `map.json` | Which parts of which repositories you have reviewed, and when |
-| `config.json` | Agent, poll interval, run-code, receipt and agent-on-your-pull-requests settings |
+| `config.json` | Agent, poll interval, concurrency, run-code, receipt, notifications, model prices, agent-on-your-pull-requests, and per-repository settings |
+| `ledger.jsonl` | One line per read, question, posted review, run and step, with the tokens and cost the agent reported: what Metrics is drawn from |
 | `docket.log` | What Docket did and what failed, with times; the previous one is `docket.log.1` |
 
 ## Layout
@@ -79,6 +103,7 @@ internal/diff            unified diff parser and range slicing
 internal/repo            clones and per-PR head/base checkouts
 internal/gh              GitHub through the gh CLI
 internal/rules           the rulebook store
+internal/ledger          the history Metrics is drawn from, and its report
 internal/owners          CODEOWNERS: which files are yours
 internal/acp             ACP client (from Lathe)
 internal/agents          known ACP agents and detection (from Lathe)
