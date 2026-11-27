@@ -48,6 +48,7 @@ Settings has three choices: act on its own when it is safe (the default), always
 ## What you should know before trusting it
 
 - **The agent runs the pull request's code on your computer.** That is what lets a claim be proved. Turn it off in Settings for repositories whose authors you would not run code from; the agent then only reads and searches.
+- **On your own pull requests, "run code" gives the agent a shell in your branch's checkout.** It can then change git settings that Docket's own git reads when it undoes a fix. Turn run-code off if that matters for a repository; the gate still judges every change by its real diff.
 - **Directory limits are policy, not a sandbox.** Docket bounds what it reads, writes and runs on the agent's behalf. An agent that uses its own tools is bound only by its own permission prompts, which Docket answers for you (allow, inside the checkouts). The Brief says when that happened.
 - **The triage is an agent's judgment.** A section marked mechanical or verified is closed by default. Its proof is on the lid, and the spot-check picks a random hunk so the proof gets tested.
 - **A tool that learns from you also learns your silences.** The Brief lists what nothing looked at.

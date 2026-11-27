@@ -55,6 +55,10 @@ var skipRe = regexp.MustCompile(`\bt\.Skip(Now|f)?\(|\b(it|test|describe)\.skip\
 
 // Floor applies the rules no classifier may overrule. It returns an ask
 // verdict and true when one of them holds.
+// MaxPatchChars is as much of a patch as the classifier is shown. A longer
+// patch always waits for the user, so the classifier never judges a part.
+const MaxPatchChars = 20000
+
 func Floor(a model.TendAction, patch string) (model.Verdict, bool) {
 	ask := func(reason string) (model.Verdict, bool) {
 		return model.Verdict{Decision: model.GateAsk, Reason: reason, Floor: true}, true
@@ -73,10 +77,16 @@ func Floor(a model.TendAction, patch string) (model.Verdict, bool) {
 		if len(files) == 0 {
 			return ask("Docket could not read this change, so it cannot judge it.")
 		}
+		if len(patch) > MaxPatchChars {
+			return ask("The change is too long to judge in full.")
+		}
 		changed := 0
 		for _, f := range files {
 			if f.Path == "" {
 				return ask("Docket could not read a file name in this change.")
+			}
+			if f.Binary {
+				return ask(fmt.Sprintf("It changes a binary file (%s).", f.Path))
 			}
 			// A file moved away is judged as the file it was, too.
 			for _, name := range []string{f.Path, f.OldPath} {
@@ -150,8 +160,8 @@ type GateData struct {
 // GatePrompt is the classifier's instruction for one action.
 func GatePrompt(a model.TendAction, patch, context string) string {
 	var b strings.Builder
-	if len(patch) > 20000 {
-		patch = patch[:20000] + "\n… (cut)"
+	if len(patch) > MaxPatchChars {
+		patch = patch[:MaxPatchChars] + "\n… (cut)"
 	}
 	if err := gateTmpl.Execute(&b, GateData{Action: a, Patch: patch, Context: context}); err != nil {
 		panic(err)

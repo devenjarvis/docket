@@ -163,7 +163,12 @@ func (e *Engine) startTend(key string, notes []string, auto bool) error {
 		m.Seen = strings.Join(triggers(e.viewer, m), "\n")
 	}
 	run, earlier := 1, []model.TendAction(nil)
+	var branch model.TendBranch
+	tip := ""
 	if old := m.Tend; old != nil {
+		// Kept until this run's checkout replaces them, so Undo of an earlier
+		// step works even if this run fails before then.
+		branch, tip = old.Branch, old.Tip
 		if notes == nil {
 			notes = old.Notes
 		}
@@ -179,7 +184,7 @@ func (e *Engine) startTend(key string, notes []string, auto bool) error {
 		}
 	}
 	m.Tend = &model.Tend{Status: "running", Activity: "Starting", Head: m.PR.HeadSHA, At: time.Now(), Notes: notes, Agent: agentName,
-		Trigger: blockerWords(m.Blockers), Run: run, Earlier: earlier}
+		Trigger: blockerWords(m.Blockers), Run: run, Earlier: earlier, Branch: branch, Tip: tip}
 	e.saveMineLocked(m)
 	snapshot := clone(m)
 	ctx := e.runCtx
@@ -263,7 +268,13 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 		if moved && parent.Err() == nil {
 			// Plan once more from the new head; the auto-run cap stops a loop.
 			note := "The branch moved on GitHub while you worked, so your commits were not pushed. Plan again from the new head."
-			if err := e.startTend(key, []string{note}, true); err != nil {
+			var notes []string
+			e.mu.Lock()
+			if m := e.mine[key]; m != nil && m.Tend != nil {
+				notes = append(notes, m.Tend.Notes...)
+			}
+			e.mu.Unlock()
+			if err := e.startTend(key, append(notes, note), true); err != nil {
 				e.Logf("%s: no new run after the branch moved: %v", key, err)
 			}
 		}

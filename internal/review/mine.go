@@ -39,12 +39,17 @@ func (e *Engine) loadMineLocked() {
 		}
 		var m model.Mine
 		if json.Unmarshal(b, &m) == nil && m.PR.Number != 0 {
-			if t := m.Tend; t != nil && t.Status == "running" {
-				// Docket stopped during the run; nothing is carrying it on.
-				t.Status, t.Activity, t.Error = "failed", "", "Docket stopped before this run finished."
-				for i := range t.Actions {
-					if t.Actions[i].State == model.StateWorking {
-						t.Actions[i].State, t.Actions[i].Result = model.StateFailed, "Docket stopped while doing this; check the pull request before trying again."
+			if t := m.Tend; t != nil {
+				// Docket stopped during the run or a step; nothing carries
+				// them on.
+				if t.Status == "running" {
+					t.Status, t.Activity, t.Error = "failed", "", "Docket stopped before this run finished."
+				}
+				for _, list := range [][]model.TendAction{t.Actions, t.Earlier} {
+					for i := range list {
+						if list[i].State == model.StateWorking {
+							list[i].State, list[i].Result = model.StateFailed, "Docket stopped while doing this; check the pull request before trying again."
+						}
 					}
 				}
 			}
@@ -126,6 +131,10 @@ func (e *Engine) refreshMine(ctx context.Context, found model.PR, notify bool) e
 	e.mu.Lock()
 	// The run and what was seen come from the latest state, not prev: a
 	// run may have changed them while the detail was being read.
+	prevSeen := ""
+	if p := e.mine[key]; p != nil {
+		prevSeen = p.Seen
+	}
 	tendNow := e.maybeTendLocked(viewer, e.mine[key], next)
 	e.mine[key] = next
 	if err := config.WriteJSON(e.minePath(pr), next); err != nil {
@@ -136,6 +145,12 @@ func (e *Engine) refreshMine(ctx context.Context, found model.PR, notify bool) e
 	if tendNow {
 		if err := e.startTend(key, nil, true); err != nil {
 			e.Logf("%s: could not start the agent: %v", key, err)
+			// Nothing covered the new items, so they stay unseen.
+			e.mu.Lock()
+			if m := e.mine[key]; m != nil {
+				m.Seen = prevSeen
+			}
+			e.mu.Unlock()
 		}
 	}
 

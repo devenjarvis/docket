@@ -147,7 +147,7 @@ func (g Git) OnTop(ctx context.Context, b Branch, sha string) bool {
 // Patch shows renames as a delete and an add, so a file moved away is judged
 // as a file removed.
 func (g Git) Patch(ctx context.Context, b Branch, from, to string) (string, error) {
-	return b.git(ctx, "diff", "--no-color", "--no-ext-diff", "--no-renames", from, to)
+	return b.git(ctx, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", from, to)
 }
 
 func (g Git) Resolve(ctx context.Context, b Branch, ref string) (string, error) {

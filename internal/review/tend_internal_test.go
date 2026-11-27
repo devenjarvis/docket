@@ -31,7 +31,8 @@ func TestARunCutShortByARestartIsMarkedFailed(t *testing.T) {
 	home := t.TempDir()
 	pr := model.PR{Owner: "o", Repo: "r", Number: 1}
 	e := New(home, nil, nil, nil)
-	m := model.Mine{PR: pr, Tend: &model.Tend{Status: "running", Actions: []model.TendAction{{ID: "a1", State: model.StateWorking}}}}
+	m := model.Mine{PR: pr, Tend: &model.Tend{Status: "running", Actions: []model.TendAction{{ID: "a1", State: model.StateWorking}},
+		Earlier: []model.TendAction{{ID: "1.a1", State: model.StateWorking}}}}
 	if err := config.WriteJSON(e.minePath(pr), m); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +40,7 @@ func TestARunCutShortByARestartIsMarkedFailed(t *testing.T) {
 	e.loadMineLocked()
 	got := e.mine[pr.Key()]
 	e.mu.Unlock()
-	if got.Tend.Status != "failed" || got.Tend.Actions[0].State != model.StateFailed {
+	if got.Tend.Status != "failed" || got.Tend.Actions[0].State != model.StateFailed || got.Tend.Earlier[0].State != model.StateFailed {
 		t.Errorf("after a restart: %+v", got.Tend)
 	}
 }
