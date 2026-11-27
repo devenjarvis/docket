@@ -75,9 +75,9 @@ function thread(key, t, viewer, author, onChange) {
     resolve);
   // A resolved thread folds away; an open one stays open.
   if (t.resolved) {
-    return h("details.block", h("summary", head), inner);
+    return h("details.block", { id: "thread-" + t.id }, h("summary", head), inner);
   }
-  return h("div.block.entry" + (onYou ? ".on-you" : ""), head, inner);
+  return h("div.block.entry" + (onYou ? ".on-you" : ""), { id: "thread-" + t.id, "data-on-you": onYou ? "1" : null }, head, inner);
 }
 
 // renderConversation draws conv for the pull request key, written by

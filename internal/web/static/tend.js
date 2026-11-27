@@ -112,6 +112,19 @@ export function tendStatus(m) {
   return done ? `The agent did ${done} ${done === 1 ? "step" : "steps"} ${ago(t.at)}.` : null;
 }
 
+// heldCards are the steps that wait for the user, for the top of Your move.
+export function heldCards(S) {
+  const m = S.mine, p = m.pr, key = p.owner + "/" + p.repo + "#" + p.number;
+  const waiting = ((m.tend && m.tend.actions) || []).filter((a) => a.state === "waiting");
+  if (!waiting.length) return null;
+  return h("div", h("div.label", { class: "mb" }, `The agent waits for you · ${waiting.length}`), waiting.map((a) => card(key, m, a)));
+}
+
+// startTend starts the agent on a pull request, or says why it cannot.
+export function startTend(S, key, ev) {
+  return send("/api/tend", { key }, "The agent is on it.", ev);
+}
+
 export function renderTend(S) {
   const m = S.mine, p = m.pr, key = p.owner + "/" + p.repo + "#" + p.number, t = m.tend;
   const mode = S.st.config.tend || "auto";
@@ -141,9 +154,7 @@ export function renderTend(S) {
     t.status === "failed" && h("div.banner.red", h("b", "The run failed: "), t.error),
     t.summary && h("p.lede", prose(t.summary)),
     (t.notes || []).length > 0 && h("p.small.muted", "Your notes for this run: " + t.notes.join(" · ")),
-    waiting.length > 0 && h("div", { class: "mt-l" },
-      h("div.label", `Waiting for you · ${waiting.length}`),
-      waiting.map((a) => card(key, m, a))),
+    waiting.length > 0 && h("p", { class: "mt-l strong" }, `${waiting.length} ${waiting.length === 1 ? "step waits" : "steps wait"} for you at the top of Your move.`),
     log.length > 0 && h("div", { class: "mt-l" },
       h("div.label", "What it did"),
       h("div.scroll-x", h("table.reg", h("tbody", log.map((a) => logRow(key, m, a)))))),
