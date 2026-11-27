@@ -11,6 +11,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/devenjarvis/docket/internal/server"
 	"net"
 	"net/http"
 	"os"
@@ -82,7 +83,7 @@ func serve(ctx context.Context, addr string, demoMode bool) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "docket: open http://%s  (data in %s)\n", ln.Addr(), a.Home)
-	srv := &http.Server{Handler: a.Server.Handler()}
+	srv := &http.Server{Handler: server.LocalOnly(a.Server.Handler())}
 	go func() {
 		<-ctx.Done()
 		_ = srv.Close()
