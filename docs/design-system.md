@@ -41,7 +41,7 @@ Diffs do not use red and green. An added line is filled blue; a removed line is 
 | `--red` / `--red-wash` | `#BF2A1A` `#F5DCD6` | `#FF8B76` `#43202A` | the reviewer |
 | `--add` / `--del` | `#D7E1F6` `#E2E0D9` | `#1B4078` `#0A1930` | diff fills |
 
-Every text colour reads at 4.5:1 or better on the grounds it is used on, in both themes (the lowest: `red` on `red-wash`, 4.5:1; `text-3` on `sunk`, 4.7:1). `hair` is 1.8:1, so it is never used for text. Quiet and disabled buttons use it as their border today and rely on their lettering to read as controls; WCAG asks 3:1 for a control's boundary, so this is a known gap.
+Every text colour reads at 4.5:1 or better on the grounds it is used on, in both themes (the lowest: `red` on `red-wash`, 4.5:1; `text-3` on `sunk`, 4.7:1). `hair` is 1.8:1, so it is never used for text or for a control's only border. Quiet and disabled buttons are bordered in `text-3` (4.5:1 or better), meeting the 3:1 WCAG asks of a control's boundary; a disabled one stays dashed.
 
 A whiteprint is a blue-violet line on drafting film; the blueprint is what it replaced, a pale line on Prussian blue. The theme follows the system by default.
 

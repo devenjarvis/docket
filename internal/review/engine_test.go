@@ -135,11 +135,17 @@ func TestApproveStaysLockedUntilEveryDecisionIsSettled(t *testing.T) {
 	if _, err := eng.Post(ctx, key, review.PostInput{Event: "APPROVE"}); err == nil {
 		t.Fatal("approved with a blocking decision")
 	}
-	if !strings.Contains(draft.Body, "How this was reviewed") {
-		t.Error("the attention receipt is missing from the review body")
+	if draft.Body != "" {
+		t.Errorf("the summary should start empty, for the reviewer's own words; got %q", draft.Body)
+	}
+	if !draft.IncludeReceipt || !strings.Contains(draft.ReceiptMarkdown, "How this was reviewed") {
+		t.Error("the attention receipt is missing from the draft")
+	}
+	if l := draft.Locks[0]; l.Decision != "d1" {
+		t.Errorf("the blocking lock should lead to d1, got %+v", l)
 	}
 
-	if _, err := eng.Post(ctx, key, review.PostInput{Event: draft.Event, Body: draft.Body, Comments: draft.Comments}); err != nil {
+	if _, err := eng.Post(ctx, key, review.PostInput{Event: draft.Event, Body: "Looks close.", Comments: draft.Comments, Receipt: true}); err != nil {
 		t.Fatal(err)
 	}
 	var posted gh.ReviewInput
@@ -155,6 +161,9 @@ func TestApproveStaysLockedUntilEveryDecisionIsSettled(t *testing.T) {
 	}
 	if c := posted.Comments[0]; c.Path != "src/delivery/deliver.ts" || c.Line != 20 || !strings.Contains(c.Body, "Failing probe") {
 		t.Errorf("blocking comment should sit on the anchor and carry its probe: %+v", c)
+	}
+	if !strings.Contains(posted.Body, "Looks close.") || !strings.HasSuffix(posted.Body, "</details>") {
+		t.Errorf("the body should carry the summary and end with the receipt, got %q", posted.Body)
 	}
 }
 

@@ -55,6 +55,7 @@ export function renderMineList(S) {
       h("div", h("div.label", "Ready to merge"), h("div.big", ready), h("div.small.muted", ""))),
     groups.some(Boolean) ? groups : h("div.block", h("h2.h2", "You have no open pull requests"),
       h("p.lede", "Pull requests you open appear here on their own, with what stands between each one and merging.")),
+    mine.length > 0 && h("span.small.muted", h("span.kbd", "j"), " ", h("span.kbd", "k"), " move between rows, ", h("span.kbd", "Enter"), " opens one."),
   ];
 }
 
@@ -185,9 +186,9 @@ export function renderMine(S) {
   const head = h("div.titleblock",
     h("a.brand", { href: "#/mine", title: "Back to your pull requests" }, "Docket"),
     cell("Pull request", `${p.owner}/${p.repo} #${p.number}`),
-    cell("Title", p.title, ".wide"),
-    cell("Branch", `${p.headRef} → ${p.baseRef}`),
-    cell("Head", (p.headSha || "").slice(0, 7)),
+    cell("Title", p.title, ".wide.narrow-hide"),
+    cell("Branch", `${p.headRef} → ${p.baseRef}`, ".narrow-hide"),
+    cell("Head", (p.headSha || "").slice(0, 7), ".narrow-hide"),
     cell("Checked", ago(m.fetchedAt)));
   const blockers = (m.blockers || []).length
     ? h("div.scroll-x", h("table.reg", h("tbody", m.blockers.map((b) => h("tr",
