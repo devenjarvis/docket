@@ -194,9 +194,9 @@ code, .mono { font-family: var(--mono); font-size: 0.93em; }
 .btn.primary:hover:not(:disabled) { background: var(--sheet); color: var(--ink); }
 .btn.red { border-color: var(--red); color: var(--red); border-width: 2px; }
 .btn.red:hover:not(:disabled), .btn.red[aria-pressed="true"] { background: var(--red); color: var(--on-red); }
-.btn.quiet { border-color: var(--hair); color: var(--text-2); }
+.btn.quiet { border-color: var(--text-3); color: var(--text-2); }
 .btn.small { min-height: 32px; padding: 0 var(--u) ; font-size: 12px; }
-.btn:disabled { cursor: not-allowed; border-style: dashed; color: var(--text-3); border-color: var(--hair); }
+.btn:disabled { cursor: not-allowed; border-style: dashed; color: var(--text-3); border-color: var(--text-3); }
 .field {
   width: 100%; min-height: 44px; padding: 10px 12px; background: var(--sunk); color: var(--text);
   border: 0; border-bottom: var(--line) solid var(--ink); border-radius: 0; font-family: var(--body);
@@ -348,6 +348,8 @@ details[open] > summary::before { content: "\2212"; }
 /* a sunk well for an inline form */
 .well { padding: calc(var(--u) * 2); background: var(--sunk); }
 .label.agent-ink { color: var(--pencil); }
+/* an answer to a question asked from Your call: kept short so the panel stays in view */
+.yours .thread { max-height: 240px; overflow-y: auto; }
 
 /* --- utilities: all on the 8 px unit. Components first; these only arrange. -- */
 .strong { font-weight: 700; }
@@ -395,6 +397,12 @@ table.reg.lanes th:nth-child(4) { width: 120px; }
   .page { padding: var(--u); }
   .sheet > .body { padding: calc(var(--u) * 2); }
   .title { font-size: 24px; }
+  /* the title block keeps the pull request and the sheet count; the rest is on the sheet */
+  .titleblock > .narrow-hide { display: none; }
+  .titleblock > * { flex: 1 1 auto; }
+  /* the sheet index scrolls sideways rather than taking the first screen */
+  .sheets { flex-wrap: nowrap; overflow-x: auto; }
+  .sheets a { flex: 0 0 auto; }
   .path .step { flex-basis: 100%; margin-right: 0; margin-bottom: 26px; }
   .path .step:not(:last-child)::after { right: 50%; top: 100%; width: 0; height: 26px; border-top: 0; border-left: var(--line) solid var(--ink); }
   .path .step:not(:last-child)::before { display: none; }
