@@ -90,6 +90,7 @@ type RepoRow struct {
 	Off     bool   `json:"off"`
 	RunCode string `json:"runCode"` // default, on or off
 	Tend    string `json:"tend"`    // default, auto, ask or off
+	Self    string `json:"self"`    // default, auto, ask or off
 	Reviews int    `json:"reviews"` // reviews posted, from the ledger
 	Open    int    `json:"open"`    // in the queue or among yours now
 }
@@ -106,7 +107,7 @@ func (s *Server) knownRepos() []RepoRow {
 		}
 		r := rows[repo]
 		if r == nil {
-			r = &RepoRow{Repo: repo, RunCode: "default", Tend: "default"}
+			r = &RepoRow{Repo: repo, RunCode: "default", Tend: "default", Self: "default"}
 			rows[repo] = r
 		}
 		return r
@@ -136,6 +137,9 @@ func (s *Server) knownRepos() []RepoRow {
 		if rc.Tend != "" {
 			r.Tend = rc.Tend
 		}
+		if rc.SelfReview != "" {
+			r.Self = rc.SelfReview
+		}
 	}
 	out := make([]RepoRow, 0, len(rows))
 	for _, r := range rows {
@@ -162,6 +166,7 @@ func (s *Server) setRepo(w http.ResponseWriter, r *http.Request) {
 		Off     *bool   `json:"off"`
 		RunCode *string `json:"runCode"`
 		Tend    *string `json:"tend"`
+		Self    *string `json:"self"`
 	}](w, r)
 	if !ok {
 		return
@@ -202,6 +207,17 @@ func (s *Server) setRepo(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if in.Self != nil {
+		switch *in.Self {
+		case "default":
+			rc.SelfReview = ""
+		case "auto", "ask", "off":
+			rc.SelfReview = *in.Self
+		default:
+			fail(w, 400, errors.New("self must be default, auto, ask or off"))
+			return
+		}
+	}
 	if rc == (config.Repo{}) {
 		delete(c.Repos, repo)
 	} else {
@@ -211,14 +227,10 @@ func (s *Server) setRepo(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, err)
 		return
 	}
-	if in.Off != nil {
+	if in.Off != nil || in.Self != nil {
 		// Turning a repository off empties it from the queue now, and
 		// turning it on finds its pull requests now, not at the next poll.
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			defer cancel()
-			_ = s.Eng.Sync(ctx)
-		}()
+		s.resync()
 	}
 	writeJSON(w, map[string]any{"ok": true, "repos": s.knownRepos()})
 }

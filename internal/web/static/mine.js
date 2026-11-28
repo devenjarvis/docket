@@ -1,9 +1,9 @@
 // One of the user's own pull requests: what blocks it, its checks, its
 // conversation and the controls to move it along. The list is the inbox's.
 
-import { h, get, toast, ago, openExternal, byline } from "./dom.js";
+import { h, get, post, toast, ago, openExternal, byline, prose, plural, tri } from "./dom.js";
 import { renderConversation, act } from "./conversation.js";
-import { refresh } from "./app.js";
+import { refresh, href } from "./app.js";
 import { renderTend, heldCards, startTend } from "./tend.js";
 
 export function mineHref(key) {
@@ -133,6 +133,73 @@ function blockerMoves(S, m, key, b) {
   }
 }
 
+const EFFECT = { blocking: ["Fix first", ".contra"], ask: ["Note for reviewers", ".open"], accept: ["Fine as is", ""] };
+
+// selfBlock is what the change does and what a reviewer would stop on, from
+// the agent's self-review of it: the top of the page, since it is what the
+// author should see before anyone else does.
+function selfBlock(S) {
+  const m = S.mine, p = m.pr, key = p.owner + "/" + p.repo + "#" + p.number, v = S.self;
+  const mode = S.st.config.selfReview || "auto";
+  const ask = (label, primary) => h("button.btn.small" + (primary ? ".primary" : ""), { onclick: async (ev) => {
+    const btn = ev.currentTarget;
+    btn.disabled = true;
+    try { await post("/api/self", { key }); toast("Your agent is reviewing it."); refresh(true); } catch (e) { toast(e.message); btn.disabled = false; }
+  } }, label);
+  const head = (...right) => h("div.row", { class: "spread base" }, h("h2.h2", "What it changes"), h("div.row", { class: "mid gap-u" }, right));
+
+  if (!v) {
+    if (mode === "off") {
+      return h("div.block", head(),
+        h("p.small.muted", "Self-review is off. Turned on, your agent reviews your pull requests the way it reviews other people's, before anyone else looks. ",
+          h("a", { href: "#/settings/policy" }, "Settings")));
+    }
+    return h("div.block", head(ask("Self-review it", true)),
+      h("p", "Your agent can review this the way it reviews other people's: what it changes, whether the description holds up, and what a reviewer would stop on, so you settle it before anyone else spends time on it."));
+  }
+  const b = v.brief, busy = v.status === "queued" || v.status === "reading";
+  const live = busy && h("div.banner", h("span.live"), b ? "Reading it again: " : "Your agent is reviewing it: ", h("span", { "data-activity": key }, v.activity || "queued"));
+  if (!b) {
+    return h("div.block", head(v.status === "failed" && ask("Try again")),
+      live,
+      v.status === "failed" && h("div.banner.red", h("b", "The self-review failed: "), v.error));
+  }
+  const decs = b.decisions || [];
+  const rows = decs.map((d, i) => {
+    const a = v.answers[d.id] || {};
+    return { d, n: i + 1, o: d.options.find((x) => x.id === a.option) };
+  });
+  const open = rows.filter((r) => !r.o);
+  const s = v.summary;
+  const wrap = !open.length && ((s.fixes > 0 && !s.handed) || (s.notes > 0 && !s.posted));
+  const claims = b.claims || [];
+  const said = claims.filter((c) => c.status !== "unstated");
+  const tally = ["proved", "contradicted", "unproven"].map((k) => [k, said.filter((c) => c.status === k).length]).filter(([, n]) => n);
+  const word = { proved: "true", contradicted: "false", unproven: "can't tell" };
+  const total = b.sections.reduce((n, x) => n + x.lines, 0);
+  const need = b.sections.filter((x) => x.kind === "judgment").reduce((n, x) => n + x.lines, 0);
+  const pushed = s.pushed && !busy;
+  return h("div.block", head(
+    open.length ? h("a.btn.small.primary", { href: href(key, "d", open[0].d.id) }, `Settle ${plural(open.length, "finding")}`)
+      : wrap ? h("a.btn.small.primary", { href: href(key, "signoff") }, "Wrap up")
+        : h("a.btn.small", { href: href(key, "brief") }, "Read the self-review")),
+    live,
+    pushed && h("div.banner", "You pushed since this was read. ", mode === "auto" ? "" : ask("Read it again")),
+    b.since && h("div.banner", h("b", "Since your last push: "), prose(b.since.summary)),
+    h("p.lede", prose(b.summary)),
+    h("div.small.text-2", [
+      total > 0 && `${plural(total, "changed line")}, ${need} needing a reviewer's eye`,
+      said.length > 0 && `the description: ${tally.map(([k, n]) => `${n} ${word[k]}`).join(", ")}`,
+      claims.some((c) => c.status === "unstated") && `${plural(claims.filter((c) => c.status === "unstated").length, "thing")} it doesn't say`,
+    ].filter(Boolean).join(" · ")),
+    rows.length ? h("div.scroll-x", { class: "mt" }, h("table.reg", h("tbody", rows.map((r) => h("tr.go", { onclick: () => { location.hash = href(key, "d", r.d.id); } },
+      h("td", { class: "fit" }, tri(r.n, !!r.o)),
+      h("td", h("div", { class: "strong" }, prose(r.d.headline || r.d.title)), r.d.headline && h("div.small.muted", prose(r.d.title))),
+      h("td.r", { class: "fit" }, r.o ? h("span.stamp" + EFFECT[r.o.effect][1], EFFECT[r.o.effect][0]) : h("span.stamp.open", "Open")))))))
+      : h("p.small", { class: "mt" }, "Nothing a reviewer would stop on."),
+    h("p.small.muted", { class: "mt-s" }, `Self-review by ${v.agent || "your agent"} at `, h("span.mono", (v.readSha || "").slice(0, 7)), ` · ${ago(v.readAt)}.`));
+}
+
 export function renderMine(S) {
   const m = S.mine, p = m.pr, key = p.owner + "/" + p.repo + "#" + p.number;
   const [lane, laneCls] = LANE_STAMP[m.lane] || [m.lane, ""];
@@ -154,8 +221,9 @@ export function renderMine(S) {
     h("div.body",
       h("div.cols",
         h("div.main",
-          h("div.row", { class: "mid gap-m" }, h("h1.title", { class: "m0" }, p.title), h("span.stamp" + laneCls, lane)),
-          h("div.block", h("h2.h2", "What stands in the way"), blockers),
+          h("div.row", { class: "mid gap-m" }, h("h1.title", { class: "m0" }, p.title), h("span.stamp" + laneCls, lane), p.draft && h("span.stamp.faint", "Draft")),
+          selfBlock(S),
+          h("div.block.rule-top", h("h2.h2", "What stands in the way"), blockers),
           h("div.block.rule-top", renderTend(S)),
           h("div.block.rule-top", h("h2.h2", "Checks"), checks(m)),
           h("div.block.rule-top", renderConversation(key, m.conversation, S.st.queue.viewer, p.author, () => refresh(true)))),

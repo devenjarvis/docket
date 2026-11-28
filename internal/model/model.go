@@ -278,6 +278,14 @@ type Since struct {
 // Review is everything Docket keeps about one PR.
 type Review struct {
 	PR PR `json:"pr"`
+	// Self marks a self-review: the agent read one of the user's own pull
+	// requests the way it reads others', so the author settles what a
+	// reviewer would stop on before anyone else looks. Its findings are
+	// fixed, explained to reviewers, or accepted, never approved.
+	Self bool `json:"self,omitempty"`
+	// Handed says what became of the findings the author chose to fix:
+	// handed to the agent, or kept to fix by hand.
+	Handed *Handed `json:"handed,omitempty"`
 	// Status is queued, reading, ready, failed or posted.
 	Status string `json:"status"`
 	Error  string `json:"error,omitempty"`
@@ -336,6 +344,15 @@ type AskTurn struct {
 	Answer   string    `json:"answer"`
 	Pending  bool      `json:"pending"`
 	At       time.Time `json:"at"`
+}
+
+// Handed is the author's hand-off of a self-review's fixes.
+type Handed struct {
+	// By is "agent" or "you".
+	By        string    `json:"by"`
+	Decisions []string  `json:"decisions"`
+	SHA       string    `json:"sha"`
+	At        time.Time `json:"at"`
 }
 
 type Posted struct {

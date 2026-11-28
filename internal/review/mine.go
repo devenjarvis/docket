@@ -93,6 +93,7 @@ func (e *Engine) syncMine(ctx context.Context) error {
 	e.mu.Lock()
 	for key, m := range e.mine {
 		if !open[key] && !e.tending[key] {
+			e.dropSelfLocked(key)
 			delete(e.mine, key)
 			_ = os.Remove(e.minePath(m.PR))
 			if m.Tend != nil && m.Tend.Branch.Dir != "" {
@@ -157,10 +158,11 @@ func (e *Engine) refreshMine(ctx context.Context, found model.PR, notify bool) e
 	if err := config.WriteJSON(e.minePath(pr), next); err != nil {
 		e.Logf("could not save %s: %v", key, err)
 	}
+	e.syncSelfLocked(pr)
 	e.mu.Unlock()
 	e.Hub.Send(Event{Type: "mine", Key: key})
 	if tendNow {
-		if err := e.startTend(key, nil, true); err != nil {
+		if err := e.startTend(key, nil, nil, true); err != nil {
 			e.Logf("%s: could not start the agent: %v", key, err)
 			// Nothing covered the new items, so they stay unseen.
 			e.mu.Lock()
@@ -401,6 +403,7 @@ func (e *Engine) Act(ctx context.Context, key string, a Action) error {
 	}
 	if a.Kind == "merge" {
 		e.mu.Lock()
+		e.dropSelfLocked(key)
 		delete(e.mine, key)
 		_ = os.Remove(e.minePath(pr))
 		e.mu.Unlock()

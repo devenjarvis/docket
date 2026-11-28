@@ -68,7 +68,7 @@ func TestActRoutes(t *testing.T) {
 	var mine struct {
 		Mine []model.Mine `json:"mine"`
 	}
-	if getJSON(t, ts, "/api/mine", &mine) != 200 || len(mine.Mine) != 3 {
+	if getJSON(t, ts, "/api/mine", &mine) != 200 || len(mine.Mine) != 4 {
 		t.Fatalf("GET /api/mine = %+v", mine)
 	}
 	if code, body := postJSON(t, ts, "/api/act", map[string]any{"key": demo.BlockedKey, "kind": "explode"}); code != 400 {

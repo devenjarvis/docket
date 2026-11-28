@@ -1,0 +1,119 @@
+{
+  "summary": "Refunds that time out at the payment gateway are now sent again, up to three attempts in all, waiting 500 ms and then 1 s in between. Every attempt carries the same idempotency key, made from the refund id, so the gateway pays a refund once however many times it arrives. Any other error, and a timeout on the last attempt, reaches the caller as before.",
+  "claims": [
+    {
+      "id": "c1",
+      "text": "Refund requests that time out at the gateway are tried up to three times.",
+      "status": "proved",
+      "evidence": "The new test \"gives up after three attempts\" passes on head: five timeouts in a row make three posts, then the timeout is thrown."
+    },
+    {
+      "id": "c2",
+      "text": "Nothing changes for a refund that succeeds first time.",
+      "status": "proved",
+      "evidence": "The existing test \"sends the refund\" passes on base and head with one post."
+    },
+    {
+      "id": "c3",
+      "text": "Covered by new tests.",
+      "status": "proved",
+      "evidence": "Two new tests. Both pass on head and fail on base. Neither covers a timeout after the gateway already took the refund."
+    },
+    {
+      "id": "c4",
+      "text": "Every attempt of one refund carries the same idempotency key.",
+      "status": "proved",
+      "evidence": "The lost-reply probe now passes: two posts, one refund paid."
+    }
+  ],
+  "sections": [
+    {
+      "id": "s1",
+      "title": "The retry loop around the gateway call",
+      "kind": "judgment",
+      "why": "It changes what reaches the payment gateway when a refund times out.",
+      "minutes": 3,
+      "files": [
+        {
+          "path": "src/refunds/client.ts"
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "title": "Tests for the retry",
+      "kind": "skim",
+      "why": "Two new tests for the new behaviour.",
+      "proof": "Both pass on head and fail on base; the old test passes on both.",
+      "minutes": 1,
+      "files": [
+        {
+          "path": "src/refunds/client.test.ts"
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "title": "Two new constants",
+      "kind": "skim",
+      "why": "The attempt count and the wait, used only by the retry loop.",
+      "proof": "Imported only by client.ts. The values match the description.",
+      "minutes": 0,
+      "files": [
+        {
+          "path": "src/refunds/config.ts"
+        }
+      ]
+    }
+  ],
+  "decisions": [],
+  "context": null,
+  "ruleHits": [
+    {
+      "rule": "R07",
+      "result": "passed",
+      "note": "Retries carry an idempotency key made from the refund id."
+    },
+    {
+      "rule": "R15",
+      "result": "passed",
+      "note": "gateway.post uses the client's 10 s timeout (src/gateway/index.ts:22)."
+    },
+    {
+      "rule": "R03",
+      "result": "passed",
+      "note": "Both new exports have doc comments."
+    },
+    {
+      "rule": "repo",
+      "result": "passed",
+      "note": "No console logging left."
+    }
+  ],
+  "uncovered": [
+    "What the gateway does when it gets two refunds for one charge: refuses the second, or pays it.",
+    "Load during a gateway outage: every timed-out refund now makes three requests."
+  ],
+  "work": [
+    {
+      "did": "Reran the lost-reply probe",
+      "result": "passes"
+    },
+    {
+      "did": "npx jest src/refunds on head",
+      "result": "3 passed"
+    },
+    {
+      "did": "Searched src/ for console.log",
+      "result": "no match"
+    }
+  ],
+  "since": {
+    "summary": "Your agent's commit sends an idempotency key on every attempt and takes out the debug log.",
+    "resolved": [
+      "d1",
+      "d2"
+    ],
+    "new": []
+  }
+}

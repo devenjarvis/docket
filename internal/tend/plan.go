@@ -34,6 +34,9 @@ type PromptData struct {
 	Login   string
 	RunCode bool
 	Notes   bool
+	// Tasks is set when the author handed over self-review findings, in
+	// tasks.json.
+	Tasks bool
 }
 
 // Prompt is the instruction for one tend run.
@@ -80,9 +83,9 @@ var kinds = map[string]bool{
 var stances = map[string]bool{"agrees": true, "informs": true, "asks": true, "declines": true}
 
 // Validate returns every problem with a plan, in words the agent can act
-// on. threads and checks are the ids that exist; onTop reports whether a
-// commit descends from the head the agent was given.
-func Validate(p *model.TendPlan, threads, checks map[string]bool, onTop func(sha string) bool) []string {
+// on. threads, checks and tasks are the ids that exist; onTop reports
+// whether a commit descends from the head the agent was given.
+func Validate(p *model.TendPlan, threads, checks, tasks map[string]bool, onTop func(sha string) bool) []string {
 	var probs []string
 	bad := func(format string, args ...any) { probs = append(probs, fmt.Sprintf(format, args...)) }
 	ids := map[string]bool{}
@@ -108,6 +111,11 @@ func Validate(p *model.TendPlan, threads, checks map[string]bool, onTop func(sha
 				bad("%s: there is no check %s in checks.json", where, c)
 			}
 		}
+		for _, t := range a.Tasks {
+			if !tasks[t] {
+				bad("%s: there is no finding %s in tasks.json", where, t)
+			}
+		}
 		switch a.Kind {
 		case model.ActFix, model.ActMergeBase:
 			switch {
@@ -116,8 +124,8 @@ func Validate(p *model.TendPlan, threads, checks map[string]bool, onTop func(sha
 			case !onTop(a.Commit):
 				bad("%s: commit %s is not on top of the head you were given; commit in the checkout, on its branch", where, a.Commit)
 			}
-			if a.Kind == model.ActFix && len(a.Threads)+len(a.Checks) == 0 {
-				bad("%s: say which threads or checks this fix answers", where)
+			if a.Kind == model.ActFix && len(a.Threads)+len(a.Checks)+len(a.Tasks) == 0 {
+				bad("%s: say which threads, checks or findings this fix answers", where)
 			}
 		case model.ActReply, model.ActResolve:
 			if !threads[a.Thread] {

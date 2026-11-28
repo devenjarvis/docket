@@ -49,6 +49,22 @@ Every open pull request you wrote is in the inbox: in Quick or Needs a closer lo
 
 From there you merge (with one confirmation, and only with the methods the repository allows), turn on GitHub's auto-merge, update the branch, mark a draft ready, ask for review, re-run failed jobs, and answer every thread. Docket notifies you when one becomes ready to merge, starts to need you, or gets a review or comment from someone else.
 
+### Self-review
+
+Your agent reviews each of your pull requests the way it reviews other people's, before anyone else looks. It reads every new head, so the top of the pull request's page says what the change does in plain words, how many changed lines need a reviewer's eye, and whether the description holds up against the code. Below that are its findings: what a reviewer would stop on, such as a bug, a claim the code does not keep, behaviour the description leaves out, a breach of your own rulebook or the repository's conventions, or a debug line left in.
+
+Settle each finding on the same sheets you use for reviews, with the evidence, the before and after, and the lines that matter. There are three answers:
+
+- **Fix first.** The fix goes to your agent, or you make it yourself.
+- **Note for reviewers.** It stays as it is, and you explain why.
+- **Fine as is.**
+
+Then **Wrap up**. Fixes you hand to your agent become a run on your branch that names the findings. Each commit goes through the same gate as any other step: small, clearly asked fixes go ahead on their own, and anything bigger waits for your OK, with Undo either way. Notes post together as one comment review on your pull request, in your words. Nothing is ever approved. When the fix is pushed, Docket reads the branch again, carries your answers over for findings that still stand, and says which ones the push resolved.
+
+In the inbox, a self-review with open findings puts the pull request under Needs a closer look (**Self-review**), unless a failing check, a conflict or a reviewer's request comes first. A settled one that is not wrapped up yet goes under Quick (**Wrap up**). While a draft is being self-reviewed, it waits rather than offering Mark ready. Pasting one of your own pull requests under Read another starts its self-review.
+
+Settings, under Policy, sets it to read every push (the default), only when you press **Self-review it**, or off. Each repository can override this. It uses the same agent and the same run-code setting as reviews, and its cost counts under your pull requests in Metrics.
+
 ### The agent works on them
 
 Press **Let the agent work on it** on one of your pull requests, and your agent checks out the branch, reads the threads and the failed logs, and plans steps: a commit for what a reviewer asked or what broke a check, a reply, a resolve, a branch update, a re-run, or a merge of the base branch. After that first run, Docket starts it on its own when a reviewer comments or a check fails, and stops after three such runs in a row until you approve, send back or undo a step, or start a run yourself.
@@ -77,6 +93,7 @@ Settings is one sheet with five tabs.
   - **turn Docket off**, so its pull requests are not read, listed or worked on, and the ones already queued leave the queue.
   - override run-code.
   - override how the agent works on your pull requests.
+  - override self-review.
 - **Reviews.** How often to check GitHub, the attention receipt, which desktop notifications you get, light or dark, and the colourway: the two riso inks Docket is printed in.
 - **Data.** What is on disk and how big it is. Remove review checkouts nothing needs, copy or download the metrics ledger, read the end of the log, or clear the ledger.
 
@@ -97,14 +114,14 @@ Everything is under `~/.docket` (`DOCKET_HOME` to move it):
 | Path | What |
 |---|---|
 | `rules/` | Your rulebook: one Markdown file per rule, `stats.json`, and a git history of every change |
-| `state/` | One JSON file per review: the brief, your answers, your time |
+| `state/` | One JSON file per review or self-review: the brief, your answers, your time |
 | `state/mine/` | One JSON file per pull request of yours: merge state, checks, conversation, and the agent's last run |
 | `tend/<owner>/<repo>/<n>/<sha>/` | The agent's checkouts of your branches |
 | `reviews/<owner>/<repo>/<n>/<sha>/` | The checkouts, the diff, the agent's probes (`out/`). Removed once the pull request leaves your queue, or once a newer head has been read |
 | `repos/` | Blobless bare clones |
 | `map.json` | Which parts of which repositories you have reviewed, and when |
 | `snoozed.json` | What you snoozed, and until when |
-| `config.json` | Agent, poll interval, concurrency, run-code, receipt, notifications, model prices, agent-on-your-pull-requests, and per-repository settings |
+| `config.json` | Agent, poll interval, concurrency, run-code, receipt, notifications, model prices, agent-on-your-pull-requests, self-review, and per-repository settings |
 | `ledger.jsonl` | One line per read, question, posted review, run and step, with the tokens and cost the agent reported: what Metrics is drawn from |
 | `docket.log` | What Docket did and what failed, with times; the previous one is `docket.log.1` |
 

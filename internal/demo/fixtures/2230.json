@@ -1,0 +1,15 @@
+{
+  "summary": "The date helpers move from src/components/dateUtils.ts to src/lib/dates.ts, unchanged, and the date picker imports them from there.",
+  "claims": [
+    {"id": "c1", "text": "Pure move: the helpers are unchanged.", "status": "proved", "evidence": "git diff -M reports the file as a 100% rename; the only other change is the import path."}
+  ],
+  "sections": [
+    {"id": "s1", "title": "The move and the new import", "kind": "mechanical", "why": "A rename and one import path.", "proof": "100% similarity rename; tsc passes; the test suite passes on head.", "minutes": 0,
+     "files": [{"path": "src/lib/dates.ts"}, {"path": "src/components/DatePicker.tsx"}]}
+  ],
+  "decisions": [],
+  "context": null,
+  "ruleHits": [],
+  "uncovered": ["The conflict with main is not looked at here: it is on your list already."],
+  "work": [{"did": "tsc --noEmit", "result": "ok"}, {"did": "npm test", "result": "212 passed"}]
+}

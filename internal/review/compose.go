@@ -118,6 +118,24 @@ func (e *Engine) Compose(key string, withReceipt bool) (*Draft, error) {
 		if body == "" {
 			body = strings.TrimSpace(opt.Comment)
 		}
+		if r.Self {
+			// On a self-review only the notes for reviewers post. A fix is
+			// the agent's or the author's to make, not a comment, and an
+			// accepted finding needs nothing.
+			if opt.Effect == model.Blocking {
+				blocking++
+				mark(&firstBlocking, dec.ID)
+			}
+			if opt.Effect != model.Ask || body == "" {
+				continue
+			}
+			c := DraftComment{Decision: dec.ID, Label: "Note", Path: dec.Anchor.Path, Line: dec.Anchor.Line, Body: body}
+			if f, ok := diff.Find(files, c.Path); ok && diff.HasNewLine(f, c.Line) {
+				c.Inline = true
+			}
+			d.Comments = append(d.Comments, c)
+			continue
+		}
 		label := "Note"
 		switch opt.Effect {
 		case model.Blocking:
@@ -168,6 +186,9 @@ func (e *Engine) Compose(key string, withReceipt bool) (*Draft, error) {
 		d.Comments = append(d.Comments, c)
 	}
 
+	if r.Self {
+		return e.composeSelf(r, d, unanswered, firstOpen, blocking, firstBlocking), nil
+	}
 	if unanswered > 0 {
 		d.Locks = append(d.Locks, Reason{Text: fmt.Sprintf("%d decision%s not answered", unanswered, plural(unanswered)), Decision: firstOpen})
 	}
@@ -252,6 +273,30 @@ func (e *Engine) Compose(key string, withReceipt bool) (*Draft, error) {
 	return d, nil
 }
 
+// composeSelf finishes a self-review's draft: it posts only as a comment,
+// with the author's notes for reviewers, and nothing locks it. What is
+// unsettled or still to fix is said as a warning.
+func (e *Engine) composeSelf(r *model.Review, d *Draft, unanswered int, firstOpen string, fixes int, firstFix string) *Draft {
+	d.Event, d.IncludeReceipt = "COMMENT", false
+	if unanswered > 0 {
+		d.Warnings = append(d.Warnings, Reason{Text: fmt.Sprintf("%d finding%s not settled yet", unanswered, plural(unanswered)), Decision: firstOpen})
+	}
+	if fixes > 0 && (r.Handed == nil || r.Handed.SHA != r.ReadSHA) {
+		d.Warnings = append(d.Warnings, Reason{Text: fmt.Sprintf("%d finding%s you chose to fix: hand %s to the agent, or fix %s yourself", fixes, plural(fixes), them(fixes), them(fixes)), Decision: firstFix})
+	}
+	if r.PR.HeadSHA != r.ReadSHA {
+		d.Warnings = append(d.Warnings, Reason{Text: "You pushed since this was read. Notes would attach to the commit that was read."})
+	}
+	return d
+}
+
+func them(n int) string {
+	if n == 1 {
+		return "it"
+	}
+	return "them"
+}
+
 func standardSuffix(s string) string {
 	if s == "" {
 		return ""
@@ -297,6 +342,9 @@ func (e *Engine) Post(ctx context.Context, key string, in PostInput) (string, er
 	if err != nil {
 		return "", err
 	}
+	if r.Self && in.Event != "COMMENT" {
+		return "", errors.New("your own pull request takes notes for reviewers, not a verdict")
+	}
 	switch in.Event {
 	case "APPROVE":
 		if len(draft.Locks) > 0 {
@@ -314,6 +362,10 @@ func (e *Engine) Post(ctx context.Context, key string, in PostInput) (string, er
 			continue
 		}
 		text := "**" + c.Label + standardSuffix(c.Standard) + ".** " + body
+		if r.Self {
+			// The author's own note reads as theirs, with no label.
+			text = body
+		}
 		if f, ok := diff.Find(files, c.Path); ok && diff.HasNewLine(f, c.Line) {
 			rv.Comments = append(rv.Comments, gh.ReviewComment{Path: f.Path, Line: c.Line, Side: "RIGHT", Body: text})
 		} else if !strings.Contains(rv.Body, body) {
@@ -323,12 +375,21 @@ func (e *Engine) Post(ctx context.Context, key string, in PostInput) (string, er
 	if rv.Event != "APPROVE" && rv.Body == "" && len(rv.Comments) == 0 {
 		return "", errors.New("there is nothing to post: add a comment or answer a decision")
 	}
-	if in.Receipt && draft.ReceiptMarkdown != "" {
+	if in.Receipt && draft.ReceiptMarkdown != "" && !r.Self {
 		rv.Body = strings.TrimSpace(rv.Body + "\n\n" + draft.ReceiptMarkdown)
 	}
 	url, err := e.GH.PostReview(ctx, r.PR, rv)
 	if err != nil {
 		return "", err
+	}
+	if r.Self {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		if cur := e.reviews[key]; cur != nil {
+			cur.Posted = &model.Posted{Event: in.Event, URL: url, At: time.Now(), SHA: r.ReadSHA}
+			e.save(cur)
+		}
+		return url, nil
 	}
 
 	var read []string

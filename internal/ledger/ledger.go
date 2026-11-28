@@ -23,6 +23,7 @@ import (
 // Kinds of entry.
 const (
 	KindRead = "read" // the agent read a pull request to review
+	KindSelf = "self" // the agent self-reviewed one of the user's own pull requests
 	KindAsk  = "ask"  // the reviewer asked the agent a follow-up question
 	KindPost = "post" // the reviewer posted a review
 	KindTend = "tend" // the agent planned work on the user's own pull request

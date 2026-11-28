@@ -1,0 +1,18 @@
+{
+  "summary": "Every log line a webhook delivery writes, on success and on failure, now carries the request id of the event being delivered, so a failed delivery can be traced back to the request that caused it.",
+  "claims": [
+    {"id": "c1", "text": "Every delivery log line carries the request id.", "status": "proved", "evidence": "The new test passes on head and fails on base. deliver writes two log lines and both carry requestId."}
+  ],
+  "sections": [
+    {"id": "s1", "title": "The request id in the delivery logs", "kind": "skim", "why": "Two log calls gain a field; nothing else changes.", "proof": "The test suite passes on head; the new test fails on base.", "minutes": 1,
+     "files": [{"path": "src/delivery/deliver.ts"}, {"path": "src/delivery/deliver.test.ts"}]}
+  ],
+  "decisions": [],
+  "context": null,
+  "ruleHits": [{"rule": "R03", "result": "passed", "note": "No new exported functions."}],
+  "uncovered": ["Whether the log pipeline indexes requestId, so it can be searched."],
+  "work": [
+    {"did": "npm test on head", "result": "41 passed"},
+    {"did": "The new test on base", "result": "fails, as it should"}
+  ]
+}
