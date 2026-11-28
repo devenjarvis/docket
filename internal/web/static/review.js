@@ -296,10 +296,43 @@ function brief(S, v, list) {
         h("div.label", `What ${v.agent || "the agent"} did`),
         h("div.small", { style: { display: "grid", gridTemplateColumns: "1fr auto", gap: "4px 12px" } },
           (b.work || []).map((w) => [h("span", prose(w.did)), h("span.mono.muted", w.result)])),
+        howRead(v),
         h("div.small.muted", { class: "mt" },
           `${v.model || ""}${v.readTookSeconds ? ` · took ${clock(v.readTookSeconds)}` : ""} · ${ago(v.readAt)}. It gives no verdict.`,
           v.isolation === "soft" ? " It used its own tools, so Docket's directory limits were not enforced." : ""),
         h("button.btn.quiet.small", { class: "mt", onclick: () => post(v.self ? "/api/self" : "/api/reread", { key: v.key }).then(() => refresh(true), (e) => toast(e.message)) }, "Read it again"))));
+}
+
+// lensName is a lens's name as it ran on this read, or its id.
+function lensName(v, id) {
+  const l = (v.lenses || []).find((x) => x.id === id);
+  return l ? l.name : id;
+}
+
+// howRead says how the brief was read, when it was more than one session:
+// the lenses and what came of their leads, or what the critic removed.
+function howRead(v) {
+  const lenses = v.lenses || [], c = v.critic;
+  if (!lenses.length && !c) return null;
+  const parts = [];
+  if (lenses.length) {
+    const ran = lenses.filter((l) => !l.failed);
+    const leads = ran.reduce((n, l) => n + l.leads, 0), kept = ran.reduce((n, l) => n + l.kept, 0);
+    const model = [...new Set(ran.map((l) => l.model).filter(Boolean))].join(", ");
+    parts.push(h("div.small", { class: "mt" },
+      `${v.strategy === "swarm" ? "A swarm" : "A panel"} of ${plural(lenses.length, "lens", "lenses")}${model ? ` on ${model}` : ""} read it first: ${plural(leads, "lead")}, ${kept} made ${kept === 1 ? "a decision" : "decisions"}.`),
+      h("div.small", { style: { display: "grid", gridTemplateColumns: "1fr auto", gap: "2px 12px" } },
+        lenses.map((l) => [h("span", l.name), h("span.mono.muted", { title: l.error || "" }, l.failed ? "failed" : `${l.kept} of ${l.leads}`)])));
+  }
+  if (c) {
+    parts.push(h("div.small", { class: "mt" }, c.failed
+      ? `The critic could not finish (${c.error}), so the first brief stands.`
+      : c.dropped && c.dropped.length
+        ? [`A critic checked the brief and removed ${plural(c.dropped.length, "decision")}`, c.changed ? ` and changed ${plural(c.changed, "claim")}` : "", ": ",
+          c.dropped.map((t, i) => [i ? "; " : "", h("i", prose(t))]), "."]
+        : `A critic checked the brief and removed nothing${c.changed ? `, but changed ${plural(c.changed, "claim")}` : ""}.`));
+  }
+  return parts;
 }
 
 // spotAndApprove picks one hunk from the sections taken on proof, and once the
@@ -467,7 +500,8 @@ function decision(v, sheet) {
   const why = mine.some((c) => c.status === "contradicted") ? "the description says otherwise"
     : mine.some((c) => c.status === "unproven") ? "the description claims it, nothing proved it"
     : mine.some((c) => c.status === "unstated") ? "the pull request doesn't mention it"
-    : rule ? `your rule ${rule.id} raised it` : d.rule === "repo" ? "the repository's conventions" : v.self ? "a reviewer would stop on it" : "only you can answer it";
+    : rule ? `your rule ${rule.id} raised it` : d.rule === "repo" ? "the repository's conventions"
+    : d.lens ? `the ${lensName(v, d.lens)} lens raised it` : v.self ? "a reviewer would stop on it" : "only you can answer it";
   const count = v.brief.decisions.length;
   const next = nextOpen(v, d.id);
   const W = words(v);

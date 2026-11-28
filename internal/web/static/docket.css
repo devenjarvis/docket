@@ -647,6 +647,7 @@ pre.log { max-height: 320px; overflow: auto; white-space: pre-wrap; }
 .w-meter { width: 120px; }
 table.reg.repos tr.is-off td { background: var(--sunk); }
 table.reg.repos tr.is-off td.mono { text-decoration: line-through; color: var(--text-3); }
+table.reg.lenses tr.is-off td { color: var(--text-3); }
 
 /* the colourway picker: each choice is a printed swatch of its two drums */
 .inks { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: calc(var(--u) * 1.5); }

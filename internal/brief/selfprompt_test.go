@@ -5,11 +5,9 @@ import (
 	"testing"
 
 	"github.com/devenjarvis/docket/internal/brief"
-	"github.com/devenjarvis/docket/internal/repo"
 )
 
 func TestTheSelfReviewPromptSpeaksToTheAuthor(t *testing.T) {
-	ws := repo.Workspace{Dir: "/w", Head: "/w/head", Base: "/w/base", Scratch: "/w/scratch", Out: "/w/out"}
 	self := brief.Prompt(brief.PromptData{Workspace: ws, RunCode: true, Self: true, Previous: true})
 	if !strings.HasPrefix(self, brief.SelfPrefix) {
 		t.Fatalf("a self-review prompt should start with SelfPrefix: %.80q", self)

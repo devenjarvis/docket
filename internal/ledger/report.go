@@ -67,9 +67,13 @@ type Report struct {
 	Contradicted int `json:"contradicted"`
 	Unproven     int `json:"unproven"`
 
-	Tend    TendReport `json:"tend"`
-	Cost    CostReport `json:"cost"`
-	Buckets []Bucket   `json:"buckets"`
+	Tend TendReport `json:"tend"`
+	Cost CostReport `json:"cost"`
+	// Strategies compares how each reading strategy did; Lenses how each
+	// lens did. Both are empty until a strategy other than single has run.
+	Strategies []StrategyRow `json:"strategies"`
+	Lenses     []LensRow     `json:"lenses"`
+	Buckets    []Bucket      `json:"buckets"`
 	// Unit is what one bucket spans: day, week or month.
 	Unit string `json:"unit"`
 }
@@ -81,6 +85,39 @@ type Point struct {
 	Number  int    `json:"number"`
 	Need    int    `json:"need"`
 	Seconds int    `json:"seconds"`
+}
+
+// StrategyRow is how one reading strategy did over the period: reads
+// (reviews and self-reviews), what they cost, and what the reviewer made of
+// the decisions in the reviews they signed.
+type StrategyRow struct {
+	Strategy   string  `json:"strategy"`
+	Reads      int     `json:"reads"`
+	Failed     int     `json:"failed"`
+	ReadMedian int     `json:"readMedian"`
+	Decisions  int     `json:"decisions"` // raised, in reads that finished
+	Dropped    int     `json:"dropped"`   // removed by a critic
+	Cost       float64 `json:"cost"`      // reported plus estimated, in dollars
+	// Signed reviews read this way, the decisions in them, and how many of
+	// those the reviewer made blocking.
+	Signed          int `json:"signed"`
+	SignedDecisions int `json:"signedDecisions"`
+	Blocking        int `json:"blocking"`
+}
+
+// LensRow is how one lens did over the period.
+type LensRow struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Runs   int    `json:"runs"`
+	Failed int    `json:"failed"`
+	Leads  int    `json:"leads"`
+	// Kept is how many leads the lead reader made decisions of.
+	Kept int `json:"kept"`
+	// Signed and Blocking are the lens's decisions in posted reviews, and
+	// how many of those the reviewer made blocking.
+	Signed   int `json:"signed"`
+	Blocking int `json:"blocking"`
 }
 
 type TendReport struct {
@@ -238,6 +275,32 @@ func Summarize(all []Entry, from, to time.Time, prices map[string]config.Price) 
 	var yours, reads []int
 	unpriced, other := map[string]bool{}, map[string]bool{}
 	byModel := map[string]*ModelCost{}
+	strat := map[string]*StrategyRow{}
+	stratReads := map[string][]int{}
+	lenses := map[string]*LensRow{}
+	stratOf := func(e Entry) *StrategyRow {
+		k := e.Strategy
+		if k == "" {
+			k = config.StrategySingle
+		}
+		row := strat[k]
+		if row == nil {
+			row = &StrategyRow{Strategy: k}
+			strat[k] = row
+		}
+		return row
+	}
+	lensOf := func(id, name string) *LensRow {
+		l := lenses[id]
+		if l == nil {
+			l = &LensRow{ID: id, Name: id}
+			lenses[id] = l
+		}
+		if name != "" {
+			l.Name = name
+		}
+		return l
+	}
 	for _, e := range all {
 		if e.Kind == KindPost && !e.At.Before(before) && e.At.Before(from) {
 			r.SignedBefore++
@@ -269,6 +332,16 @@ func Summarize(all []Entry, from, to time.Time, prices map[string]config.Price) 
 			r.Mechanical += e.Mechanical
 			if e.Receipt {
 				r.Receipts++
+			}
+			sr := stratOf(e)
+			sr.Signed++
+			sr.SignedDecisions += e.Decisions
+			sr.Blocking += e.Blocking
+			for id, n := range e.LensDecisions {
+				lensOf(id, "").Signed += n
+			}
+			for id, n := range e.LensBlocking {
+				lensOf(id, "").Blocking += n
 			}
 		case KindRead:
 			r.Reads++
@@ -317,6 +390,27 @@ func Summarize(all []Entry, from, to time.Time, prices map[string]config.Price) 
 			}
 		}
 
+		var sr *StrategyRow
+		if e.Kind == KindRead || e.Kind == KindSelf {
+			sr = stratOf(e)
+			sr.Reads++
+			if e.Failed {
+				sr.Failed++
+			} else {
+				sr.Decisions += e.Decisions
+				stratReads[sr.Strategy] = append(stratReads[sr.Strategy], e.Seconds)
+			}
+			sr.Dropped += e.Dropped
+			for _, lr := range e.Lenses {
+				l := lensOf(lr.ID, lr.Name)
+				l.Runs++
+				if lr.Failed {
+					l.Failed++
+				}
+				l.Leads += lr.Leads
+				l.Kept += lr.Kept
+			}
+		}
 		job := jobOf(e.Kind)
 		if job == "" {
 			continue
@@ -340,6 +434,9 @@ func Summarize(all []Entry, from, to time.Time, prices map[string]config.Price) 
 			addTokens(&r.Cost.Tokens, u.Tokens)
 			jc.Cost += rep + est
 			jc.Tokens += u.Total
+			if sr != nil {
+				sr.Cost += rep + est
+			}
 			if b != nil {
 				b.Cost[job] += rep + est
 				b.Tokens[job] += u.Total
@@ -382,6 +479,22 @@ func Summarize(all []Entry, from, to time.Time, prices map[string]config.Price) 
 	if r.Cost.ByModel == nil {
 		r.Cost.ByModel = []ModelCost{}
 	}
+	r.Strategies, r.Lenses = []StrategyRow{}, []LensRow{}
+	for _, k := range config.Strategies {
+		if row := strat[k]; row != nil {
+			row.ReadMedian = median(stratReads[k])
+			r.Strategies = append(r.Strategies, *row)
+		}
+	}
+	for _, l := range lenses {
+		r.Lenses = append(r.Lenses, *l)
+	}
+	sort.Slice(r.Lenses, func(i, j int) bool {
+		if r.Lenses[i].Kept != r.Lenses[j].Kept {
+			return r.Lenses[i].Kept > r.Lenses[j].Kept
+		}
+		return r.Lenses[i].ID < r.Lenses[j].ID
+	})
 	if r.Signed > 0 {
 		r.Cost.PerSigned = (r.Cost.ByJob[JobReading].Cost + r.Cost.ByJob[JobQuestions].Cost) / float64(r.Signed)
 	}

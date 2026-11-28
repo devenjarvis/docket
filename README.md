@@ -75,9 +75,24 @@ Steps that go ahead push to your branch as new commits on top, never with force.
 
 Settings has three choices: act on its own when it is safe (the default), always ask first, or off. Each can be set per repository.
 
+## How a pull request is read
+
+Settings, under Reading, picks one of four strategies. Each repository can override it under Policy. Every one ends in the same brief, checked by the same validator, under the same file and run-code limits.
+
+- **One reader** (the default). One session of your agent, on its own model, reads the change and writes the brief.
+- **Lens panel, then one reader.** Each lens is a quick, read-only session on your agent's smallest model (the one named haiku, mini, flash, small or lite), looking for one kind of problem: correctness, the description against the code, tests, security, rules and conventions, compatibility, and performance (off by default). Up to four run at once on one agent process. Then one session on the agent's own model gets their findings as leads, checks each one, runs what it needs to, drops what does not hold up (the brief's work log says which and why) and writes the brief. Each decision says which lens raised it.
+- **Lens swarm, all small.** The same panel, with the brief written on the smallest model too.
+- **One reader, then a critic.** One read, then a fresh session of the same model tries to knock down each decision and each proved claim, and rewrites the brief without what falls. The first brief is kept beside it as `out/first-brief.json`. If the critic cannot produce a brief that validates, the first one stands.
+
+**Lenses are yours to change.** They are Markdown files in `~/.docket/lenses/`, one per lens, with a name and an on/off switch in front matter and the focus in the body. Settings lets you turn them on and off, edit them, reset a built-in one, delete them and add your own. Docket wraps each lens in a prompt that keeps it read-only and fixes the shape of its findings, so a lens can change what is looked for but not what comes back.
+
+**Standing instructions** go to every reading session, in every strategy: how your team deploys, what you promise users, what you always or never want raised. Docket's own reading prompt is not editable: the brief's format, the validator and the rule that a pull request's text is material, never instructions, all depend on it.
+
+Metrics compares the strategies side by side (reads, failures, median time, cost per read, decisions per read, and how many decisions in the reviews you signed you made blocking) and each lens (leads, how many were kept, how many became blocking).
+
 ## Settings and metrics
 
-Settings is one sheet with five tabs.
+Settings is one sheet with six tabs.
 
 - **Metrics.** What Docket did over the last 7, 30 or 90 days, or all time:
   - reviews signed per week, by verdict, and your time on each one, median and total, split across decisions, diff, brief and context.
@@ -89,11 +104,13 @@ Settings is one sheet with five tabs.
   - the areas of each repository you know.
 - **What the agent cost.** Tokens and dollars per job (reading, questions, your pull requests) and per model. Docket reads what the agent reports over ACP: the session's cost in `usage_update`, and each turn's tokens in the draft end-turn `usage` field. When an agent reports tokens but no cost, Docket estimates the cost from the per-model prices you enter under Agent. The table says which figures are reported and which are estimated. Tokens from a model with no price and no reported cost are counted, but not in dollars.
 - **Agent.** Pick the agent or give a command, add folders to search for it, set how many pull requests are read at once, check that the agent starts, and set model prices.
+- **Reading.** The reading strategy, the lenses, and your standing instructions.
 - **Policy.** Run code globally. Per repository, you can:
   - **turn Docket off**, so its pull requests are not read, listed or worked on, and the ones already queued leave the queue.
   - override run-code.
   - override how the agent works on your pull requests.
   - override self-review.
+  - override the reading strategy.
 - **Reviews.** How often to check GitHub, the attention receipt, which desktop notifications you get, light or dark, and the colourway: the two riso inks Docket is printed in.
 - **Data.** What is on disk and how big it is. Remove review checkouts nothing needs, copy or download the metrics ledger, read the end of the log, or clear the ledger.
 
@@ -113,6 +130,7 @@ Everything is under `~/.docket` (`DOCKET_HOME` to move it):
 
 | Path | What |
 |---|---|
+| `lenses/` | The panel's lenses: one Markdown file per lens |
 | `rules/` | Your rulebook: one Markdown file per rule, `stats.json`, and a git history of every change |
 | `state/` | One JSON file per review or self-review: the brief, your answers, your time |
 | `state/mine/` | One JSON file per pull request of yours: merge state, checks, conversation, and the agent's last run |
@@ -131,11 +149,12 @@ Everything is under `~/.docket` (`DOCKET_HOME` to move it):
 main.go                  docket | serve | demo | version
 internal/app             wires engine and server; shared by app and browser
 internal/review          the loop: sync, read, answer, compose, post
-internal/brief           the reading prompt and the brief validator
+internal/brief           the reading, lens and critic prompts, and the brief validator
 internal/diff            unified diff parser and range slicing
 internal/repo            clones and per-PR head/base checkouts
 internal/gh              GitHub through the gh CLI
 internal/rules           the rulebook store
+internal/lens            the lenses: focused reviewers the panel strategies run
 internal/ledger          the history Metrics is drawn from, and its report
 internal/owners          CODEOWNERS: which files are yours
 internal/acp             ACP client (from Lathe)

@@ -1,10 +1,10 @@
 // Settings: what Docket did and what it cost (Metrics), and how it works
-// (Agent, Policy, Reviews, Data). One sheet, a tab per part.
+// (Agent, Reading, Policy, Reviews, Data). One sheet, a tab per part.
 
 import { h, svg, get, post, toast, plural, ago } from "./dom.js";
 import { S as state, refresh } from "./app.js";
 
-export const TABS = [["metrics", "Metrics"], ["agent", "Agent"], ["policy", "Policy"], ["reviews", "Reviews"], ["data", "Data"]];
+export const TABS = [["metrics", "Metrics"], ["agent", "Agent"], ["reading", "Reading"], ["policy", "Policy"], ["reviews", "Reviews"], ["data", "Data"]];
 const PERIODS = [[7, "7 days"], [30, "30 days"], [90, "90 days"], [0, "All"]];
 
 export function period() {
@@ -20,6 +20,7 @@ export async function loadSettings(S) {
   if (tab === "metrics") S.settings.metrics = await get("/api/metrics?days=" + period());
   if (tab === "agent") S.settings.models = await get("/api/metrics?days=0");
   if (tab === "policy") S.settings.repos = (await get("/api/repos")).repos;
+  if (tab === "reading") S.settings.lenses = await get("/api/lenses");
   if (tab === "data") {
     const [data, log] = await Promise.all([get("/api/data"), get("/api/logtail?n=200")]);
     S.settings.data = data;
@@ -155,7 +156,7 @@ function kv(rows) {
 // --- the page ----------------------------------------------------------------
 export function renderSettings(S) {
   const tab = S.route.tab;
-  const body = { metrics, agent, policy, reviews, data }[tab] || metrics;
+  const body = { metrics, agent, reading, policy, reviews, data }[tab] || metrics;
   return h("div.sheet",
     h("nav.sheets", { "aria-label": "Settings" },
       TABS.map(([id, label]) => h("a", { href: "#/settings/" + id, "aria-current": tab === id ? "page" : null }, label))),
@@ -227,7 +228,37 @@ function metrics(S) {
         ["Mechanical sections you spot-checked", `${r.audited} of ${r.mechanical}`],
         ["Attention receipt included", `${r.receipts} of ${r.signed}`],
       ]))),
-  rulebook(m.rules), tendSection(r.tend), familiarity(m.map)];
+  strategySection(r), rulebook(m.rules), tendSection(r.tend), familiarity(m.map)];
+}
+
+// strategySection compares the reading strategies and the lenses, once
+// anything but a single read has run.
+function strategySection(r) {
+  const rows = r.strategies || [], lenses = r.lenses || [];
+  if (!lenses.length && !rows.some((x) => x.strategy !== "single")) return null;
+  const per = (a, b) => (b ? (a / b).toFixed(1) : "—");
+  return h("div.block.rule-top",
+    h("div.row", { class: "spread base" }, h("h2.h2", "How each way of reading did"), h("a.small", { href: "#/settings/reading" }, "Change how pull requests are read")),
+    h("p.small.muted.measure", "Cost and speed come from the reads; the last columns come from the reviews you signed. A blocking decision is one you agreed must change before merge: the plainest sign a finding was worth your time."),
+    h("div.scroll-x", h("table.reg",
+      h("thead", h("tr", h("th", "Strategy"), h("th.r", "Reads"), h("th.r", "Failed"), h("th.r", "Median read"), h("th.r", "Cost per read"),
+        h("th.r", "Decisions per read"), h("th.r", "Removed by critic"), h("th.r", "Signed"), h("th.r", "Blocking of decisions"))),
+      h("tbody", rows.map((x) => h("tr",
+        h("td", STRATEGY[x.strategy] ? STRATEGY[x.strategy][0] : x.strategy),
+        h("td.r.num", x.reads), h("td.r.num", x.failed), h("td.r.num", dur(x.readMedian)),
+        h("td.r.num", x.reads ? money(x.cost / x.reads) : "—"),
+        h("td.r.num", per(x.decisions, x.reads - x.failed)), h("td.r.num", x.strategy === "critic" ? x.dropped : "—"),
+        h("td.r.num", x.signed), h("td.r.num", x.signedDecisions ? `${x.blocking} of ${x.signedDecisions}` : "—")))))),
+    lenses.length ? [
+      h("h2.h2", { class: "mt" }, "Lenses"),
+      h("p.small.muted.measure", "Leads are what a lens handed the lead reader; kept, how many became decisions. A lens that rarely gets kept or made blocking is spending tokens for nothing: turn it off or sharpen it."),
+      h("div.scroll-x", h("table.reg",
+        h("thead", h("tr", h("th", "Lens"), h("th.r", "Runs"), h("th.r", "Failed"), h("th.r", "Leads"), h("th.r", "Kept"), h("th", "Kept share"), h("th.r", "In signed reviews"), h("th.r", "Made blocking"))),
+        h("tbody", lenses.map((l) => h("tr",
+          h("td", l.name, h("span.mono.small.muted", " " + l.id)),
+          h("td.r.num", l.runs), h("td.r.num", l.failed), h("td.r.num", l.leads), h("td.r.num", l.kept),
+          h("td", h("div.bar", { class: "w-meter", role: "img", "aria-label": `${pct(l.kept, l.leads)}% kept` }, h("i", { style: { width: pct(l.kept, l.leads) + "%" } }))),
+          h("td.r.num", l.signed), h("td.r.num", l.blocking))))))] : null);
 }
 
 function costSection(r) {
@@ -430,6 +461,91 @@ function prices(S) {
     names.length ? h("div.row", h("button.btn.primary", { onclick: () => save({ prices: store() }) }, "Save prices")) : null);
 }
 
+// --- Reading ------------------------------------------------------------------
+// The strategies, as Settings names and explains them: label, what happens,
+// when it pays.
+export const STRATEGY = {
+  single: ["One reader", "One session of your agent, on its own model, reads the change, proves what it can and writes the brief.",
+    "The default. The least to run and the fewest moving parts."],
+  panel: ["Lens panel, then one reader", "Each lens below is a quick, read-only session on your agent's smallest model, looking for one kind of problem. Then one session on its own model checks every lead, runs what it needs to, drops what does not hold up and writes the brief.",
+    "Wider coverage for a little more cost: small models are cheap, and focused ones miss less in their focus. The reader decides what reaches you, so the panel's noise does not."],
+  swarm: ["Lens swarm, all small", "The same panel, with the brief written on the smallest model too. Nothing runs on the big model.",
+    "The cheapest way to get many eyes. Briefs are thinner and the validator sends more back; watch Metrics to see whether it holds up for you."],
+  critic: ["One reader, then a critic", "One read, then a fresh session of the same model tries to knock down each decision and each proved claim, and rewrites the brief without what falls. It keeps the first brief beside the new one.",
+    "Fewer, firmer decisions. It roughly doubles the cost of a read, and is worth it where your time is the scarce thing."],
+};
+
+function reading(S) {
+  const c = state.st.config, L = S.settings.lenses;
+  const mode = c.strategy || "single";
+  const usesLenses = mode === "panel" || mode === "swarm";
+  const notes = h("textarea.field", { rows: 5, value: c.instructions || "", "aria-label": "Standing instructions",
+    placeholder: "For example: We deploy several times a day, so a migration that cannot run beside the old code is always blocking. Our public API is the /v2 handlers; changes anywhere else are internal." });
+  return [
+    h("h1.title", "How a pull request is read"),
+    h("p.lede", "Every way of reading ends in the same brief, checked by the same validator, under the same file and run-code limits. What changes is how many sessions of your agent read the change, on which of its models, before you see it."),
+    h("div.block",
+      Object.entries(STRATEGY).map(([v, [label, what, when]]) => h("label.check", { class: "top" },
+        h("input", { type: "radio", name: "strategy", checked: mode === v, onchange: () => save({ strategy: v }) }),
+        h("span", h("b", label), h("div.small", { class: "measure" }, what), h("div.small.muted", { class: "measure" }, when)))),
+      h("p.small.muted.measure", "It applies to reviews and self-reviews alike. Each repository can have its own, under Policy. Follow-up questions always go to one session on your agent's own model. ",
+        "The smallest model is the one whose name says haiku, mini, flash, small or lite; an agent that offers none, or will not switch, runs lenses on its own model. Lenses share one agent process, four at a time.")),
+    lensSection(S, L, usesLenses),
+    h("div.block.rule-top",
+      h("h2.h2", "Standing instructions"),
+      h("p.lede", "What every reading session should know about how you and your team work: what you promise users, how you deploy, what you always want flagged or never want to hear about. They go after Docket's own instructions, in every strategy, to the reader, the lenses and the critic."),
+      notes,
+      h("div.row", { class: "mid" }, h("button.btn.primary", { onclick: () => save({ instructions: notes.value }) }, "Save instructions"),
+        h("span.small.muted", `Up to 4000 characters. Rules in the rulebook are still the way to say "stop me on this".`))),
+    h("div.pencil.small",
+      h("div.label", "What stays fixed"),
+      h("p", "Docket's own reading prompt is not editable. It sets where the files are, the shape of brief.json, and that everything in a pull request is material, never instructions. The validator, the sign-off locks and the carried-over answers all depend on that shape, and a prompt that let a pull request's text steer the reader would make every brief suspect. Your lenses and instructions are added inside it, so they can change what the agent looks for and how it weighs things, but not what it hands back.")),
+  ];
+}
+
+function lensSection(S, L, usesLenses) {
+  if (!L) return h("p.small.muted", "Loading the lenses…");
+  const set = (r) => { S.settings.lenses = r; refresh(true); };
+  const call = async (path, body) => { try { set(await post(path, body)); } catch (e) { toast(e.message); } };
+  const editing = S.settings.lensEdit;
+  const on = L.lenses.filter((l) => l.on).length;
+  const editor = (l) => {
+    const name = h("input.field", { value: l ? l.name : "", "aria-label": "Lens name", placeholder: "A short name: Migrations, Accessibility, Our API style" });
+    const text = h("textarea.field", { rows: 8, value: l ? l.text : "", "aria-label": "What the lens looks for",
+      placeholder: "What this reviewer looks for, and what counts as a finding. One focus per lens works best: a small model that looks for one thing finds more of it." });
+    return h("div.block", { class: "gap-s" },
+      name, text,
+      h("div.row", { class: "mid gap-u" },
+        h("button.btn.primary.small", { onclick: async () => {
+          try { set(await post("/api/lens", l ? { id: l.id, name: name.value, text: text.value } : { name: name.value, text: text.value, on: true })); S.settings.lensEdit = null; refresh(true); }
+          catch (e) { toast(e.message); }
+        } }, l ? "Save lens" : "Add lens"),
+        h("button.btn.quiet.small", { onclick: () => { S.settings.lensEdit = null; refresh(true); } }, "Cancel"),
+        h("span.small.muted", `Up to ${L.maxText} characters.`)));
+  };
+  return h("div.block.rule-top",
+    h("div.row", { class: "spread base" }, h("h2.h2", "Lenses"),
+      h("span.small.muted", usesLenses ? `${on} on: each read runs ${on === 1 ? "it" : "them"} first` : "Used by the lens panel and the lens swarm")),
+    h("p.small.muted.measure", "A lens is one focused reviewer: a short note on what to look for. Docket wraps it in a prompt that keeps the lens read-only, says where the files are, and asks for at most eight findings with a file, a line and the evidence. The lead reader treats each finding as a lead to check, not a fact. ",
+      "They are Markdown files in ", h("span.mono", L.dir), ", so you can edit them there too, or keep them in your dotfiles."),
+    h("div.scroll-x", h("table.reg.lenses",
+      h("thead", h("tr", h("th", "On"), h("th", "Lens"), h("th", ""), h("th.r", ""))),
+      h("tbody", L.lenses.map((l) => editing === l.id
+        ? h("tr", h("td", { colspan: 4 }, editor(l)))
+        : h("tr", { class: l.on ? null : "is-off" },
+          h("td", h("input", { type: "checkbox", checked: l.on, "aria-label": `${l.name} on`, onchange: (e) => call("/api/lens", { id: l.id, on: e.target.checked }) })),
+          h("td", h("b", l.name), h("div.small.muted", { class: "measure" }, l.text.length > 220 ? l.text.slice(0, 220) + "…" : l.text)),
+          h("td", !l.builtin ? h("span.stamp", "Yours") : l.edited ? h("span.stamp.open", "Edited") : h("span.stamp.faint", "Built in")),
+          h("td.r", h("span.row", { class: "gap-u end" },
+            h("button.btn.small.quiet", { onclick: () => { S.settings.lensEdit = l.id; refresh(true); } }, "Edit"),
+            l.builtin && l.edited ? h("button.btn.small.quiet", { onclick: () => call("/api/lens/reset", { id: l.id }) }, "Reset") : null,
+            h("button.btn.small.quiet", { onclick: () => call("/api/lens/delete", { id: l.id }) }, "Delete")))))))),
+    editing === "new" ? editor(null)
+      : h("div.row", { class: "mid gap-u" },
+        h("button.btn", { onclick: () => { S.settings.lensEdit = "new"; refresh(true); } }, "Add a lens"),
+        L.missingBuiltins ? h("button.btn.quiet", { onclick: () => call("/api/lenses/restore") }, `Restore ${plural(L.missingBuiltins, "deleted built-in lens", "deleted built-in lenses")}`) : null));
+}
+
 // --- Policy -------------------------------------------------------------------
 function policy(S) {
   const c = state.st.config, repos = S.settings.repos || [];
@@ -453,15 +569,16 @@ function policy(S) {
         h("span.small.muted", off ? `${plural(off, "repository")} turned off` : "Every repository Docket has met")),
       h("p.small.muted.measure", "Turn Docket off for a repository and it leaves it alone: its pull requests are not read, listed or worked on, and the ones in your queue go. Turning it back on finds them again."),
       h("div.scroll-x", h("table.reg.repos",
-        h("thead", h("tr", h("th", "Repository"), h("th", "Docket"), h("th", "Run code"), h("th", "Agent on your pull requests"), h("th", "Self-review"), h("th.r", "Signed"))),
+        h("thead", h("tr", h("th", "Repository"), h("th", "Docket"), h("th", "Run code"), h("th", "Reading"), h("th", "Agent on your pull requests"), h("th", "Self-review"), h("th.r", "Signed"))),
         h("tbody", repos.length ? repos.map((r) => h("tr", { class: r.off ? "is-off" : null },
           h("td.mono", r.repo, r.open && !r.off ? h("div.small.muted", `${r.open} open now`) : null),
           h("td", sel(`Docket in ${r.repo}`, r.off ? "off" : "on", [["on", "On"], ["off", "Off"]], (v) => setRepo(r.repo, { off: v === "off" }))),
           h("td", sel(`Run code in ${r.repo}`, r.runCode, [["default", `Default (${c.runCode ? "on" : "off"})`], ["on", "On"], ["off", "Off"]], (v) => setRepo(r.repo, { runCode: v }), r.off)),
+          h("td", sel(`Reading in ${r.repo}`, r.strategy || "default", [["default", `Default (${STRATEGY[c.strategy || "single"][0].toLowerCase()})`], ...Object.entries(STRATEGY).map(([k, v]) => [k, v[0]])], (v) => setRepo(r.repo, { strategy: v }), r.off)),
           h("td", sel(`Agent on your pull requests in ${r.repo}`, r.tend, [["default", `Default (${tendLabel[c.tend].toLowerCase()})`], ...Object.entries(tendLabel)], (v) => setRepo(r.repo, { tend: v }), r.off)),
           h("td", sel(`Self-review in ${r.repo}`, r.self || "default", [["default", `Default (${selfLabel[selfMode].toLowerCase()})`], ...Object.entries(selfLabel)], (v) => setRepo(r.repo, { self: v }), r.off)),
           h("td.r.num", r.reviews)))
-          : h("tr", h("td", { colspan: 6 }, h("span.small.muted", "No repository yet. Add one below to set it before its first pull request arrives.")))))),
+          : h("tr", h("td", { colspan: 7 }, h("span.small.muted", "No repository yet. Add one below to set it before its first pull request arrives.")))))),
       h("div.row", { class: "one-line gap-u" }, addRepo,
         h("button.btn", { onclick: () => { if (addRepo.value.trim()) setRepo(addRepo.value.trim(), { off: true }); } }, "Turn off"),
         h("button.btn.quiet", { onclick: () => { if (addRepo.value.trim()) setRepo(addRepo.value.trim(), { runCode: "off" }); } }, "Never run its code"))),

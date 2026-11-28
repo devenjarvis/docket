@@ -58,7 +58,7 @@ export function toast(msg) {
   toastTimer = setTimeout(() => t.classList.add("hidden"), 4500);
 }
 
-export const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+export const plural = (n, word, many) => `${n} ${n === 1 ? word : many || word + "s"}`;
 export const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
 export function ago(iso) {

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/devenjarvis/docket/internal/acp"
+	"github.com/devenjarvis/docket/internal/model"
 )
 
 // Kinds of entry.
@@ -60,6 +61,17 @@ type Entry struct {
 	Contradicted int    `json:"contradicted,omitempty"`
 	Unproven     int    `json:"unproven,omitempty"`
 	Isolation    string `json:"isolation,omitempty"`
+	// Strategy is how the pull request was read (config.Strategy*); empty
+	// in entries written before strategies existed, which were single.
+	Strategy string          `json:"strategy,omitempty"`
+	Lenses   []model.LensRun `json:"lenses,omitempty"`
+	// Dropped is how many decisions a critic pass removed.
+	Dropped int `json:"dropped,omitempty"`
+	// LensDecisions and LensBlocking count, per lens id, the decisions in a
+	// posted review that a lens raised, and how many of those the reviewer
+	// made blocking.
+	LensDecisions map[string]int `json:"lensDecisions,omitempty"`
+	LensBlocking  map[string]int `json:"lensBlocking,omitempty"`
 
 	// read and post
 	NeedLines  int `json:"needLines,omitempty"`

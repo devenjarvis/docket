@@ -130,6 +130,9 @@ type Decision struct {
 	Rule string `json:"rule,omitempty"`
 	// ProposedRule is a rule the reviewer might want, when none raised this.
 	ProposedRule *ProposedRule `json:"proposedRule,omitempty"`
+	// Lens is the id of the lens whose lead this decision came from, when a
+	// panel of lenses read the change first.
+	Lens string `json:"lens,omitempty"`
 }
 
 // Option effects.
@@ -317,6 +320,39 @@ type Review struct {
 	Activity string `json:"activity,omitempty"`
 	// Isolation says whether the agent kept to Docket's file policy.
 	Isolation string `json:"isolation,omitempty"`
+	// Strategy is how the brief was read (config.Strategy*).
+	Strategy string `json:"strategy,omitempty"`
+	// Lenses says how each lens did, when a panel read the change first.
+	Lenses []LensRun `json:"lenses,omitempty"`
+	// Critic says what the critic pass changed, when one ran.
+	Critic *CriticRun `json:"critic,omitempty"`
+}
+
+// LensRun is how one lens did on one read.
+type LensRun struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Model is the model the lens ran on.
+	Model string `json:"model,omitempty"`
+	// Leads is how many findings it handed the lead reader; Kept is how
+	// many of them the brief made decisions of.
+	Leads   int  `json:"leads"`
+	Kept    int  `json:"kept"`
+	Seconds int  `json:"seconds,omitempty"`
+	Failed  bool `json:"failed,omitempty"`
+	// Error is why it failed.
+	Error string `json:"error,omitempty"`
+}
+
+// CriticRun is what a critic pass did to a brief.
+type CriticRun struct {
+	// Dropped lists the titles of the decisions it removed.
+	Dropped []string `json:"dropped,omitempty"`
+	// Changed is how many claims it gave a different status.
+	Changed int `json:"changed,omitempty"`
+	// Failed says the critic could not finish, so the first brief stands.
+	Failed bool   `json:"failed,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 type Answer struct {

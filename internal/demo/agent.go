@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devenjarvis/docket/internal/brief"
 	"github.com/devenjarvis/docket/internal/tend"
 )
 
@@ -40,6 +41,10 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 	nextID := 0
 	sessions := 0
 
+	// backlog holds requests that arrived while call waited for an answer:
+	// a client can prompt several sessions at once, and the scripted agent
+	// serves them one after another.
+	var backlog []frame
 	// call sends a request to the client and waits for its answer.
 	call := func(method string, params any) (json.RawMessage, string) {
 		nextID++
@@ -47,7 +52,14 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 		send(frame{ID: id, Method: method, Params: raw(params)})
 		for sc.Scan() {
 			var f frame
-			if json.Unmarshal(sc.Bytes(), &f) != nil || f.Method != "" || string(f.ID) != string(id) {
+			if json.Unmarshal(sc.Bytes(), &f) != nil {
+				continue
+			}
+			if f.Method != "" {
+				backlog = append(backlog, f)
+				continue
+			}
+			if string(f.ID) != string(id) {
 				continue
 			}
 			if len(f.Error) > 0 {
@@ -89,10 +101,26 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 		update(session, map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": id, "status": "completed"})
 	}
 
-	for sc.Scan() {
-		var f frame
-		if json.Unmarshal(sc.Bytes(), &f) != nil {
-			continue
+	next := func() (frame, bool) {
+		for {
+			if len(backlog) > 0 {
+				f := backlog[0]
+				backlog = backlog[1:]
+				return f, true
+			}
+			if !sc.Scan() {
+				return frame{}, false
+			}
+			var f frame
+			if json.Unmarshal(sc.Bytes(), &f) == nil {
+				return f, true
+			}
+		}
+	}
+	for {
+		f, ok := next()
+		if !ok {
+			break
 		}
 		switch f.Method {
 		case "initialize":
@@ -149,6 +177,28 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 				finish(p.SessionID, f.ID, "tend")
 				continue
 			}
+			if strings.HasPrefix(prompt, brief.LensPrefix) {
+				file := lensFile(prompt)
+				id := filepath.Base(filepath.Dir(file))
+				tool(p.SessionID, 1, "Reading the diff for "+id, "read")
+				if _, msg := call("fs/write_text_file", map[string]any{"sessionId": p.SessionID, "path": file, "content": lensFindings(id, prompt)}); msg != "" {
+					say(p.SessionID, "Could not write the findings: "+msg)
+				}
+				finish(p.SessionID, f.ID, "lens")
+				continue
+			}
+			if strings.HasPrefix(prompt, brief.CriticPrefix) {
+				_, out := dirsFromPrompt(prompt)
+				tool(p.SessionID, 1, "Rerunning the brief's probes", "execute")
+				tool(p.SessionID, 2, "Checking each decision against the code", "read")
+				if body, err := os.ReadFile(filepath.Join(out, "brief.json")); err == nil {
+					if _, msg := call("fs/write_text_file", map[string]any{"sessionId": p.SessionID, "path": filepath.Join(out, "brief.json"), "content": criticize(body)}); msg != "" {
+						say(p.SessionID, "Could not write the brief: "+msg)
+					}
+				}
+				finish(p.SessionID, f.ID, "critic")
+				continue
+			}
 			if strings.HasPrefix(prompt, "A reviewer is reading") {
 				time.Sleep(step)
 				tool(p.SessionID, 1, "Searching the three receiver repositories", "search")
@@ -189,6 +239,9 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 			body := fixture(fmt.Sprintf("%d.json", pr.Number))
 			if f := fixedFixture(pr.Number, pr.HeadSHA, "json"); f != "" {
 				body = f
+			}
+			if body != "" && strings.Contains(prompt, "/lenses.json` is what a panel") {
+				body = credit(body, filepath.Join(dir, "lenses.json"))
 			}
 			if body == "" {
 				say(p.SessionID, "The demo agent has no brief for this pull request.")
@@ -287,4 +340,7 @@ var demoUsage = map[string]usage{
 	"ask":  {map[string]int64{"totalTokens": 13400, "inputTokens": 12000, "outputTokens": 1400, "cachedReadTokens": 30000}, 0.16},
 	"tend": {map[string]int64{"totalTokens": 40500, "inputTokens": 34000, "outputTokens": 6500, "cachedReadTokens": 90000}, 0.52},
 	"gate": {map[string]int64{"totalTokens": 4300, "inputTokens": 4100, "outputTokens": 200}, 0},
+	// A lens runs on the small model, which reports tokens and no cost.
+	"lens":   {map[string]int64{"totalTokens": 18500, "inputTokens": 17000, "outputTokens": 1500}, 0},
+	"critic": {map[string]int64{"totalTokens": 30400, "inputTokens": 27000, "outputTokens": 3400, "cachedReadTokens": 60000}, 0.38},
 }
