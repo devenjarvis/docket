@@ -16,14 +16,16 @@ type PR struct {
 	URL    string `json:"url"`
 	// HeadSHA and BaseSHA pin the exact change that was read. A new HeadSHA
 	// means the author pushed, and the brief is out of date.
-	HeadSHA   string    `json:"headSha"`
-	BaseSHA   string    `json:"baseSha"`
-	BaseRef   string    `json:"baseRef"`
-	HeadRef   string    `json:"headRef"`
-	Additions int       `json:"additions"`
-	Deletions int       `json:"deletions"`
-	Files     int       `json:"files"`
-	Draft     bool      `json:"draft"`
+	HeadSHA   string `json:"headSha"`
+	BaseSHA   string `json:"baseSha"`
+	BaseRef   string `json:"baseRef"`
+	HeadRef   string `json:"headRef"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Files     int    `json:"files"`
+	Draft     bool   `json:"draft"`
+	// State is "open", "closed" or "merged". Empty means open.
+	State     string    `json:"state,omitempty"`
 	UpdatedAt time.Time `json:"updatedAt"`
 	// Why says how the PR reached the user: "review requested", "assigned",
 	// "team: platform", "added by hand".

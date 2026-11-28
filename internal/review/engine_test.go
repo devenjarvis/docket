@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -203,4 +204,70 @@ func containsRule(rs []model.Rule, id string) bool {
 		}
 	}
 	return false
+}
+
+// closingGitHub is the demo GitHub, except that the PRs in merged have left
+// the search results and read back as merged.
+type closingGitHub struct {
+	demo.GitHub
+	mu     sync.Mutex
+	merged map[string]bool
+	hidden map[string]bool
+}
+
+func (g *closingGitHub) Assigned(ctx context.Context) ([]model.PR, error) {
+	all, err := g.GitHub.Assigned(ctx)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var out []model.PR
+	for _, p := range all {
+		if !g.merged[p.Key()] && !g.hidden[p.Key()] {
+			out = append(out, p)
+		}
+	}
+	return out, err
+}
+
+func (g *closingGitHub) PR(ctx context.Context, owner, repo string, n int) (model.PR, error) {
+	p, err := g.GitHub.PR(ctx, owner, repo, n)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if err == nil && g.merged[p.Key()] {
+		p.State = "merged"
+	}
+	return p, err
+}
+
+func TestMergedPullRequestsLeaveTheQueue(t *testing.T) {
+	const merged, open = "acme/ledger#311", "acme/web-app#2214"
+	fake := &closingGitHub{merged: map[string]bool{}, hidden: map[string]bool{merged: true, open: true}}
+	eng, home := start(t, func(e *review.Engine, home string) {
+		fake.GitHub = demo.GitHub{Home: home}
+		e.GH = fake
+	})
+	ctx := context.Background()
+	for _, ref := range []string{merged, open} {
+		if _, err := eng.Add(ctx, ref); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitReady(t, eng, merged)
+	waitReady(t, eng, open)
+
+	fake.mu.Lock()
+	fake.merged[merged] = true
+	fake.mu.Unlock()
+	if err := eng.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := eng.Get(merged); ok {
+		t.Errorf("%s is merged but is still in the queue", merged)
+	}
+	if _, err := os.Stat(filepath.Join(home, "state", "acme__ledger__311.json")); !os.IsNotExist(err) {
+		t.Errorf("the state file of %s is still there (%v)", merged, err)
+	}
+	if _, ok := eng.Get(open); !ok {
+		t.Errorf("%s is still open but left the queue", open)
+	}
 }

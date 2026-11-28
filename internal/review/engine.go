@@ -311,10 +311,15 @@ func (e *Engine) sync(ctx context.Context) error {
 	}
 	// A PR that no longer waits on the user leaves the queue, unless they
 	// are partway through it or added it by hand.
+	var held []model.PR
 	e.mu.Lock()
 	for key, r := range e.reviews {
 		off := e.off(r.PR.Owner + "/" + r.PR.Repo)
-		if !off && (waiting[key] || contains(r.PR.Why, "added by hand")) {
+		if !off && waiting[key] {
+			continue
+		}
+		if !off && contains(r.PR.Why, "added by hand") {
+			held = append(held, r.PR)
 			continue
 		}
 		if off {
@@ -332,10 +337,39 @@ func (e *Engine) sync(ctx context.Context) error {
 			}
 			delete(e.reviews, key)
 			_ = os.Remove(e.statePath(r.PR))
+			continue
 		}
+		held = append(held, r.PR)
 	}
 	e.mu.Unlock()
+	e.dropClosed(ctx, held, waiting)
 	return nil
+}
+
+// dropClosed asks GitHub about each review the queue keeps after it left the
+// search results, and removes the ones whose pull request has merged or closed.
+func (e *Engine) dropClosed(ctx context.Context, held []model.PR, waiting map[string]bool) {
+	for _, pr := range held {
+		key := pr.Key()
+		cur, err := e.GH.PR(ctx, pr.Owner, pr.Repo, pr.Number)
+		if err != nil {
+			e.Logf("could not check whether %s is still open: %v", key, err)
+			continue
+		}
+		if cur.State == "" || cur.State == "open" {
+			continue
+		}
+		e.mu.Lock()
+		if r := e.reviews[key]; r != nil && !waiting[key] {
+			if c := e.cancels[key]; c != nil {
+				c()
+			}
+			delete(e.reviews, key)
+			_ = os.Remove(e.statePath(r.PR))
+			e.Logf("removed %s from the queue: it is %s", key, cur.State)
+		}
+		e.mu.Unlock()
+	}
 }
 
 func contains(list []string, s string) bool {
