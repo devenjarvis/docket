@@ -147,8 +147,10 @@ func (s *Server) state(w http.ResponseWriter, _ *http.Request) {
 			active++
 		}
 	}
+	queue, mine := s.Eng.List(), s.Eng.Mine()
 	writeJSON(w, map[string]any{
-		"queue":  s.Eng.List(),
+		"queue":  queue,
+		"inbox":  review.BuildInbox(queue.Viewer, queue.Reviews, mine, time.Now()),
 		"agent":  map[string]any{"command": cmd, "name": name},
 		"agents": agents.Detect(exec.LookPath, ""),
 		"config": map[string]any{
@@ -161,7 +163,7 @@ func (s *Server) state(w http.ResponseWriter, _ *http.Request) {
 		// Poll and concurrency are read once, when Docket starts.
 		"started": map[string]int{"pollSeconds": s.StartedPoll, "concurrency": s.StartedWorkers},
 		"rules":   active,
-		"mine":    s.Eng.Mine(),
+		"mine":    mine,
 		"demo":    s.Demo,
 		"home":    s.Home,
 	})

@@ -1,63 +1,17 @@
-// The user's own pull requests: the list, sorted by whose move it is, and one
-// pull request with what blocks it, its checks, its conversation and the
-// controls to move it along.
+// One of the user's own pull requests: what blocks it, its checks, its
+// conversation and the controls to move it along. The list is the inbox's.
 
 import { h, get, toast, ago, openExternal } from "./dom.js";
 import { renderConversation, act } from "./conversation.js";
 import { refresh } from "./app.js";
-import { renderTend, tendStatus, heldCards, startTend } from "./tend.js";
+import { renderTend, heldCards, startTend } from "./tend.js";
 
 export function mineHref(key) {
   const m = key.match(/^(.+)\/(.+)#(\d+)$/);
   return `#/m/${m[1]}/${m[2]}/${m[3]}`;
 }
 
-const LANES = {
-  "needs-you": ["Needs you", "The next move is yours."],
-  ready: ["Ready to merge", "Nothing stands in the way."],
-  waiting: ["Waiting on others", "Checks are running or a reviewer has not answered yet."],
-};
-
 const LANE_STAMP = { "needs-you": ["Needs you", ".red"], ready: ["Ready to merge", ".solid"], waiting: ["Waiting", ".open"] };
-
-export function renderMineList(S) {
-  const mine = S.st.mine || [];
-  const row = (m) => {
-    const p = m.pr;
-    const failing = (m.checks || []).filter(failed).length;
-    const total = (m.checks || []).length;
-    const open = (m.conversation.threads || []).filter((t) => !t.resolved).length;
-    return h("tr.go", { onclick: () => { location.hash = mineHref(p.owner + "/" + p.repo + "#" + p.number); }, tabindex: 0,
-      onkeydown: (e) => { if (e.key === "Enter") location.hash = mineHref(p.owner + "/" + p.repo + "#" + p.number); } },
-      h("td", h("div.mono.small.muted", `${p.owner}/${p.repo} #${p.number}`),
-        h("div", { class: "item-title" }, p.title),
-        h("div.small.muted", (m.blockers || []).map((b) => b.text).join(" ") || "Ready to merge."),
-        tendStatus(m) && h("div.small", { class: "mt-s" }, tendStatus(m))),
-      h("td.num", total ? `${total - failing} of ${total}` : "none"),
-      h("td.num", open || ""),
-      h("td.r.small.muted", ago(p.updatedAt)));
-  };
-  const groups = Object.entries(LANES).map(([lane, [title, sub]]) => {
-    const list = mine.filter((m) => m.lane === lane);
-    if (!list.length) return null;
-    return h("div.block",
-      h("div.row", { class: "spread base" }, h("h2.h2", `${title} · ${list.length}`), h("span.small.muted", sub)),
-      h("div.scroll-x", h("table.reg.lanes",
-        h("thead", h("tr", h("th", "Pull request"), h("th", "Checks passing"), h("th", "Open threads"), h("th.r", ""))),
-        h("tbody", list.map(row)))));
-  });
-  const need = mine.filter((m) => m.lane === "needs-you").length, ready = mine.filter((m) => m.lane === "ready").length;
-  return [
-    S.st.queue.mineError && h("div.banner.red", S.st.queue.mineError),
-    h("div.tally",
-      h("div", h("div.label", "Yours, open"), h("div.big", mine.length), h("div.small.muted", "pull requests you wrote")),
-      h("div", h("div.label", "Need you"), h("div.big.red", need), h("div.small.muted", "failing checks, conflicts, or a reviewer waiting")),
-      h("div", h("div.label", "Ready to merge"), h("div.big", ready), h("div.small.muted", ""))),
-    groups.some(Boolean) ? groups : h("div.block", h("h2.h2", "You have no open pull requests"),
-      h("p.lede", "Pull requests you open appear here on their own, with what stands between each one and merging.")),
-    mine.length > 0 && h("span.small.muted", h("span.kbd", "j"), " ", h("span.kbd", "k"), " move between rows, ", h("span.kbd", "Enter"), " opens one."),
-  ];
-}
 
 const failed = (c) => c.status === "COMPLETED" && ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"].includes(c.conclusion);
 const pending = (c) => c.status !== "COMPLETED";
@@ -119,7 +73,7 @@ function controls(S, m) {
     onclick: () => {
       confirmRow.replaceChildren(
         h("span", `Merge ${p.headRef} into ${p.baseRef} with ${pick.selectedOptions[0].textContent.toLowerCase()}?`),
-        h("button.btn.red", { onclick: async () => { if (await act(key, { kind: "merge", method: pick.value, confirm: true })) { toast("Merged."); location.hash = "#/mine"; } } }, "Confirm merge"),
+        h("button.btn.red", { onclick: async () => { if (await act(key, { kind: "merge", method: pick.value, confirm: true })) { toast("Merged."); location.hash = "#/"; } } }, "Confirm merge"),
         h("button.btn.quiet", { onclick: () => confirmRow.classList.add("hidden") }, "Cancel"));
       confirmRow.classList.remove("hidden");
     },
@@ -133,7 +87,7 @@ function controls(S, m) {
     ? h("button.btn", { onclick: doit({ kind: "auto-merge", on: false }, "Auto-merge is off.") }, "Turn off auto-merge")
     : h("button.btn", { onclick: () => doit({ kind: "auto-merge", on: true, method: pick.value }, "GitHub will merge it once nothing blocks it.")() }, "Merge when ready"));
   return h("div.yours",
-    h("span.label", "Your move"),
+    h("span.label", "Actions"),
     heldCards(S),
     (mergeBtn || autoBtn) ? h("div.row", { class: "mid gap-u" }, !st.autoMerge && pick, mergeBtn, autoBtn)
       : !ready && h("p.small.muted", "Merge opens once nothing blocks it. The blockers each have their move on the left."),
@@ -184,7 +138,7 @@ export function renderMine(S) {
   const cell = (label, value, cls) => h("div" + (cls || ""), h("span.label", label), h("span.cell-v", value));
   const [lane, laneCls] = LANE_STAMP[m.lane] || [m.lane, ""];
   const head = h("div.titleblock",
-    h("a.brand", { href: "#/mine", title: "Back to your pull requests" }, "Docket"),
+    h("a.brand", { href: "#/", title: "Back to the inbox" }, "Docket"),
     cell("Pull request", `${p.owner}/${p.repo} #${p.number}`),
     cell("Title", p.title, ".wide.narrow-hide"),
     cell("Branch", `${p.headRef} → ${p.baseRef}`, ".narrow-hide"),
@@ -197,7 +151,7 @@ export function renderMine(S) {
     : h("p", "Nothing blocks it. It can merge now.");
   return h("div.sheet", head,
     h("nav.sheets", { "aria-label": "Pull request" },
-      h("a", { href: "#/mine" }, "← Yours"), h("span.spacer"),
+      h("a", { href: "#/" }, "← Inbox"), h("span.spacer"),
       h("a", { href: p.url || "#", target: "_blank", rel: "noreferrer", onclick: openExternal }, "On GitHub")),
     h("div.body",
       h("div.cols",

@@ -100,19 +100,7 @@ function logRow(key, m, a) {
     h("td.r", a.state === "done" && a.undo && h("button.btn.small", { onclick: (ev) => send("/api/undo", { key, action: a.id }, "Undone.", ev) }, "Undo")));
 }
 
-// tendStatus is the one-line state for the list of own pull requests.
-export function tendStatus(m) {
-  const t = m.tend;
-  if (!t) return null;
-  if (t.status === "running") return "The agent is working on it.";
-  if (t.status === "failed") return "The agent's last run failed.";
-  const waiting = (t.actions || []).filter((a) => a.state === "waiting").length;
-  if (waiting) return `The agent has ${waiting} ${waiting === 1 ? "step" : "steps"} waiting for you.`;
-  const done = (t.actions || []).filter((a) => a.state === "done").length;
-  return done ? `The agent did ${done} ${done === 1 ? "step" : "steps"} ${ago(t.at)}.` : null;
-}
-
-// heldCards are the steps that wait for the user, for the top of Your move.
+// heldCards are the steps that wait for the user, at the top of Actions.
 export function heldCards(S) {
   const m = S.mine, p = m.pr, key = p.owner + "/" + p.repo + "#" + p.number;
   const waiting = ((m.tend && m.tend.actions) || []).filter((a) => a.state === "waiting");
@@ -154,7 +142,7 @@ export function renderTend(S) {
     t.status === "failed" && h("div.banner.red", h("b", "The run failed: "), t.error),
     t.summary && h("p.lede", prose(t.summary)),
     (t.notes || []).length > 0 && h("p.small.muted", "Your notes for this run: " + t.notes.join(" · ")),
-    waiting.length > 0 && h("p", { class: "mt-l strong" }, `${waiting.length} ${waiting.length === 1 ? "step waits" : "steps wait"} for you at the top of Your move.`),
+    waiting.length > 0 && h("p", { class: "mt-l strong" }, `${waiting.length} ${waiting.length === 1 ? "step waits" : "steps wait"} for you under Actions.`),
     log.length > 0 && h("div", { class: "mt-l" },
       h("div.label", "What it did"),
       h("div.scroll-x", h("table.reg", h("tbody", log.map((a) => logRow(key, m, a)))))),

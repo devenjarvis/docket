@@ -292,12 +292,15 @@ type Review struct {
 	// Asks are follow-up questions and the agent's answers.
 	Asks []AskTurn `json:"asks"`
 	// Audited lists mechanical sections the reviewer spot-checked.
-	Audited  map[string]bool `json:"audited"`
-	Posted   *Posted         `json:"posted,omitempty"`
-	Agent    string          `json:"agent,omitempty"`
-	Model    string          `json:"model,omitempty"`
-	ReadAt   time.Time       `json:"readAt,omitempty"`
-	ReadTook int             `json:"readTookSeconds,omitempty"`
+	Audited map[string]bool `json:"audited"`
+	Posted  *Posted         `json:"posted,omitempty"`
+	Agent   string          `json:"agent,omitempty"`
+	Model   string          `json:"model,omitempty"`
+	ReadAt  time.Time       `json:"readAt,omitempty"`
+	// FoundAt is when Docket first saw the review request: the start of
+	// the author's wait on this reviewer.
+	FoundAt  time.Time `json:"foundAt,omitempty"`
+	ReadTook int       `json:"readTookSeconds,omitempty"`
 	// Activity is the agent's latest progress line while it reads.
 	Activity string `json:"activity,omitempty"`
 	// Isolation says whether the agent kept to Docket's file policy.

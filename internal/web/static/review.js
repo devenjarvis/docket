@@ -4,7 +4,7 @@
 import { h, get, post, toast, plural, clock, ago, tri, prose, openExternal } from "./dom.js";
 import { beforeAfter } from "./viz.js";
 import { renderConversation } from "./conversation.js";
-import { href, go, refresh } from "./app.js";
+import { href, go, refresh, itemHref } from "./app.js";
 
 const KIND = { judgment: "Needs you", skim: "Verified, skim", mechanical: "Mechanical, proven" };
 const CLAIM = { proved: ["Proved", ""], contradicted: ["Contradicted", ".contra"], unproven: ["Unproven", ".open"], unstated: ["Unstated", ".faint"] };
@@ -48,7 +48,7 @@ export function reviewKeys(S, e) {
   if (!v || !v.brief) return;
   const list = sheetsOf(v), i = at(S, list);
   const to = (j) => { const s = list[j]; if (s) go(href(v.key, s.sheet, s.id)); };
-  if (e.key === "n" && S.route.sheet === "signoff") { const r = nextReview(S); if (r) go(href(r.key)); }
+  if (e.key === "n" && S.route.sheet === "signoff") { const r = nextItem(S); if (r) go(itemHref(r)); }
   else if (e.key === "ArrowRight" || e.key === "n") to(i + 1);
   else if (e.key === "u") { const d = nextOpen(v, S.route.id); if (d) go(href(v.key, "d", d.id)); else toast("Every decision is answered."); }
   else if (e.key === "s") go(href(v.key, "signoff"));
@@ -582,33 +582,29 @@ async function send(S, v, event, body, comments, receipt, ev) {
   }
 }
 
-// posted is the receipt that replaces the verdict buttons, and the one
-// button that keeps the loop moving.
+// posted is the receipt that replaces the verdict buttons, and the way on to
+// whatever the inbox has next, review or not.
 function posted(S, v) {
-  const next = nextReview(S);
+  const next = nextItem(S);
   return [
     h("div.label", "Posted"),
     h("div", "You posted ", h("i", EVENT[v.posted.event] || "a review"), " ", ago(v.posted.at), "."),
     v.posted.url && h("a.small", { href: v.posted.url, target: "_blank", rel: "noreferrer", onclick: openExternal }, "See it on GitHub"),
     next
-      ? h("div.block", { class: "gap-s" },
-        h("a.btn.primary", { href: href(next.key) }, "Next review →"),
-        h("div.small", h("span.mono", `${next.pr.owner}/${next.pr.repo} #${next.pr.number}`), " · ", next.pr.title))
-      : h("div.block", { class: "gap-s" }, h("div", { class: "strong" }, "Inbox is clear"), h("a.btn", { href: "#/" }, "Back to the inbox")),
+      ? h("div.block", { class: "gap-s rule-top" },
+        h("div.label", "Next up"),
+        h("div.small", h("span.mono", `${next.pr.owner}/${next.pr.repo} #${next.pr.number}`), next.mine ? " · yours" : ""),
+        h("div", { class: "strong" }, next.pr.title),
+        h("div.small.text-2", next.why),
+        h("a.btn.primary", { href: itemHref(next) }, `${next.action} · ${next.minutes} min →`))
+      : h("div.block", { class: "gap-s" }, h("div", { class: "strong" }, "Nothing else to do"), h("a.btn", { href: "#/" }, "Back to the inbox")),
     next && h("div.small.muted", h("span.kbd", "n"), " opens it"),
     h("button.btn.quiet.small", { onclick: () => { S.repost = v.key; refresh(true); } }, "Post another review"),
   ];
 }
 
-const LANE_ORDER = ["judgment", "skim", "clear"];
-
-// nextReview is the pull request to go to once this one is signed: the first
-// open review that needs judgment, else the next one that is ready.
-export function nextReview(S) {
-  const rs = ((S.st && S.st.queue.reviews) || []).filter((r) => r.key !== S.route.key && r.status === "ready" && r.lane !== "done");
-  for (const lane of LANE_ORDER) {
-    const r = rs.find((x) => x.lane === lane);
-    if (r) return r;
-  }
-  return rs[0] || null;
+// nextItem is the first thing in the inbox to do after this review: the
+// inbox's own order, so it may be one of the user's pull requests.
+export function nextItem(S) {
+  return ((S.st && S.st.inbox) || []).find((it) => it.key !== S.route.key && ["quick", "closer", "skim"].includes(it.band)) || null;
 }
