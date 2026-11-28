@@ -63,6 +63,16 @@ All three are bundled as WOFF2 under the SIL Open Font License; the app makes no
 - Three line weights: hairline `1px`, object line `1.5px` (`--line`), border line `3px` (`--heavy`). A sheet's frame and the reviewer's panel use the border line.
 - Spacing sits on an 8 px unit (`--u`).
 
+## Icon
+
+A sheet from a drawing set on the Blueprint table: the sheet in ink with its border line and title block, a red revision cloud around two lines, and a filled revision triangle: a decision, answered. It uses the system's colours and no others, and the triangle is the same mark the app numbers decisions with, so red still means only the reviewer.
+
+| File | What |
+|---|---|
+| `internal/desktop/icon/appicon.svg` | The drawing. The tile follows the macOS icon grid (824 px on a 1024 canvas); the rounded tile is the one radius in the system, because the platform asks for it. |
+| `internal/desktop/appicon.png` | What the desktop app embeds, rendered from the SVG with `make icon`. |
+| `internal/web/static/favicon.svg` | The browser tab's icon: the sheet and the triangle, without the cloud or grid, which do not survive 16 px. |
+
 ## Components
 
 Each has a class in `docket.css` and a rendered example in the style guide.

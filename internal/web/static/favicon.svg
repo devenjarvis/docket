@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Docket's icon reduced for a browser tab: the sheet and the reviewer's
+       triangle. The full drawing is internal/desktop/icon/appicon.svg. -->
+  <rect width="32" height="32" rx="6" fill="#0F2747"/>
+  <rect x="6" y="5" width="17" height="22" fill="#F6F7F3"/>
+  <path d="M9 10H19M9 15H16M9 20H18" stroke="#1B2163" stroke-width="2.5"/>
+  <path d="M23 13L29 24H17Z" fill="#BF2A1A" stroke="#0F2747" stroke-width="1.5" paint-order="stroke"/>
+</svg>
