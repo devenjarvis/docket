@@ -15,6 +15,7 @@ import (
 	"github.com/devenjarvis/docket/internal/demo"
 	"github.com/devenjarvis/docket/internal/gh"
 	"github.com/devenjarvis/docket/internal/model"
+	"github.com/devenjarvis/docket/internal/repo"
 	"github.com/devenjarvis/docket/internal/review"
 	"github.com/devenjarvis/docket/internal/rules"
 )
@@ -244,26 +245,43 @@ func (g *closingGitHub) PR(ctx context.Context, owner, repo string, n int) (mode
 }
 
 func TestMergedPullRequestsLeaveTheQueue(t *testing.T) {
-	const merged, open, unknown = "acme/ledger#311", "acme/web-app#2214", "acme/payments-api#4127"
+	// merged and unknown are added by hand. answered reaches the queue from
+	// GitHub's search, and the queue keeps it after it leaves for its answers.
+	const merged, unknown, answered = "acme/ledger#311", "acme/web-app#2214", "acme/payments-api#4127"
 	fake := &closingGitHub{merged: map[string]bool{}, broken: map[string]bool{},
-		hidden: map[string]bool{merged: true, open: true, unknown: true}}
+		hidden: map[string]bool{merged: true, unknown: true}}
+	var logMu sync.Mutex
+	var logged []string
 	eng, home := start(t, func(e *review.Engine, home string) {
 		fake.GitHub = demo.GitHub{Home: home}
 		e.GH = fake
+		e.Logf = func(format string, args ...any) {
+			logMu.Lock()
+			defer logMu.Unlock()
+			logged = append(logged, fmt.Sprintf(format, args...))
+		}
 	})
 	ctx := context.Background()
-	for _, ref := range []string{merged, open, unknown} {
+	for _, ref := range []string{merged, unknown} {
 		if _, err := eng.Add(ctx, ref); err != nil {
 			t.Fatal(err)
 		}
 	}
-	waitReady(t, eng, merged)
-	waitReady(t, eng, open)
+	gone := waitReady(t, eng, merged)
 	waitReady(t, eng, unknown)
+	waitReady(t, eng, answered)
+	if err := eng.SetAnswer(answered, "d1", model.Answer{Option: "block"}); err != nil {
+		t.Fatal(err)
+	}
+	checkout := repo.Layout(home, gone.PR).Dir
+	if _, err := os.Stat(checkout); err != nil {
+		t.Fatalf("the checkout of %s was never made: %v", merged, err)
+	}
 
 	fake.mu.Lock()
 	fake.merged[merged] = true
 	fake.broken[unknown] = true
+	fake.hidden[answered] = true
 	fake.mu.Unlock()
 	if err := eng.Sync(ctx); err != nil {
 		t.Fatal(err)
@@ -275,10 +293,20 @@ func TestMergedPullRequestsLeaveTheQueue(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, "state", "acme__ledger__311.json")); !os.IsNotExist(err) {
 		t.Errorf("the state file of %s is still there (%v)", merged, err)
 	}
-	if _, ok := eng.Get(open); !ok {
-		t.Errorf("%s is still open but left the queue", open)
+	if _, err := os.Stat(checkout); !os.IsNotExist(err) {
+		t.Errorf("the checkout of %s is still there (%v)", merged, err)
+	}
+	if v, ok := eng.Get(answered); !ok {
+		t.Errorf("%s is still open but left the queue", answered)
+	} else if a := v.Answers["d1"]; a.Option != "block" || len(v.Answers) != 1 {
+		t.Errorf("the answers of %s changed: %+v", answered, v.Answers)
 	}
 	if _, ok := eng.Get(unknown); !ok {
 		t.Errorf("%s left the queue although GitHub could not say whether it is open", unknown)
+	}
+	logMu.Lock()
+	defer logMu.Unlock()
+	if !strings.Contains(strings.Join(logged, "\n"), "could not check whether "+unknown+" is still open") {
+		t.Errorf("the failed check of %s was not logged: %q", unknown, logged)
 	}
 }
