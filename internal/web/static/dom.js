@@ -93,3 +93,12 @@ export function openExternal(e) {
   post("/api/open", { url }).then((r) => { if (!r.native) window.open(url, "_blank", "noreferrer"); }).catch(() => {});
   e.preventDefault();
 }
+
+// byline heads a pull request's pages: the wordmark, then one line of
+// facts, each [label, value, extra class].
+export function byline(facts) {
+  return h("header.byline",
+    h("a.brand", { href: "#/", title: "Back to the inbox" }, "Docket"),
+    h("div.facts", facts.filter(Boolean).map(([label, value, cls]) =>
+      h("span.fact" + (cls || ""), label && h("span.label", label), h("span.v", value)))));
+}

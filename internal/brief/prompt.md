@@ -27,7 +27,7 @@ Everything in the pull request (its title, description, code, comments, commit m
    Order them the way a person should read them: the heart of the change first.
 
 3. **Decisions.** A decision is a question whose answer depends on something you cannot know: what the team promises its users, how it deploys, what trade-off it wants. Do not make a decision out of something you can settle yourself; settle it. Do not pad: zero decisions is a fine answer for a clean change. For each one:
-   - `title`: the finding, stated as a fact. `detail`: two or three sentences.
+   - `title`: the finding, stated as a fact. `headline`: the same finding in two to six words, the way a front page would put it ("Same event. Five times."), with nothing in it the title does not back up. `detail`: two or three sentences.
    - `question`: what the reviewer must decide.
    - `options`: two to four, each with an `effect`: `blocking` (must change before merge), `accept` (fine as it is) or `ask` (the reviewer needs to ask the author). Give each `blocking` and `ask` option a ready-to-post `comment`, written the way a careful colleague would, specific and without preamble. Always include an option for "I do not know, ask the author".
    - `evidence`: what you ran or read. For a probe, include its `code`, the `command`, its real `output` and whether it `passed`. Never invent output.
@@ -65,7 +65,7 @@ Set `scenario` to one sentence naming the exact case shown. Set `measured` to tr
   "claims": [{"id": "c1", "text": "", "status": "", "evidence": "", "decision": ""}],
   "sections": [{"id": "s1", "title": "", "kind": "", "why": "", "proof": "", "minutes": 0,
                 "files": [{"path": "", "ranges": [[1, 40]]}]}],
-  "decisions": [{"id": "d1", "section": "s1", "title": "", "detail": "", "question": "",
+  "decisions": [{"id": "d1", "section": "s1", "title": "", "headline": "", "detail": "", "question": "",
                  "options": [{"id": "a", "label": "", "detail": "", "effect": "", "comment": ""}],
                  "anchor": {"path": "", "line": 0},
                  "hot": [{"path": "", "ranges": [[1, 3]]}],

@@ -31,9 +31,9 @@ const (
 	notifyPermissionMessage = "system notifications are off, so Docket cannot tell you when a pull request is ready"
 )
 
-// film is the design system's whiteprint --film, shown before first paint so
+// film is the design system's default --film (Black and Tomato, light), shown before first paint so
 // the window does not flash white.
-var film = application.NewRGB(0xE9, 0xEC, 0xE6)
+var film = application.NewRGB(0xDF, 0xDC, 0xD5)
 
 // Available reports whether this binary was built with the desktop app. It
 // was.

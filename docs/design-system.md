@@ -1,66 +1,86 @@
-# Docket design system: Whiteprint
+# Docket design system: Overprint
 
-Review is redlining. Before screens, a change to a design was reviewed on a print of the drawing: the drawing in ink, the checker's notes in pencil, and the corrections that had to be made in red. Docket borrows that whole convention, because it already solves Docket's problem: three parties mark the same sheet and nobody may confuse them.
+Docket is printed like a risograph zine: two drums of ink on cheap paper, a little off register. It looks made by hand because it is made the way a zine is: one dark ink that carries everything, one bright ink saved for a single job, and the second print never quite landing on the first.
 
 ## Where it lives
 
 | File | What |
 |---|---|
 | `internal/web/static/docket.css` | The implementation: tokens, components and utilities. Components reference tokens only. |
-| `docs/tokens.json` | The record of every token (colours in both themes, type, spacing, lines) with a usage note each. The Design System artifact is built from it. |
-| `internal/web/tokens_test.go` | Fails when `docket.css` and `tokens.json` disagree, or when a colour is added to the stylesheet without being recorded. |
-| `internal/web/static/styleguide.html` | The living style guide: every token and component, rendered by `docket.css` itself, in both themes. Open `/static/styleguide.html` while `mise run demo` runs. |
+| `docs/tokens.json` | The record of every token (each colourway in both modes, type, spacing, lines) with a usage note each, and the contrast pairs. The Design System artifact is built from it. |
+| `internal/web/tokens_test.go` | `TestTokensMatchStylesheet` fails when `docket.css` and `tokens.json` disagree, or when a colour is added to the stylesheet without being recorded. `TestContrast` fails when any pair in `tokens.json` drops under its minimum in any colourway or mode. |
+| `internal/web/static/styleguide.html` | The living style guide: every token and component, rendered by `docket.css` itself, in every colourway and both modes. Open `/static/styleguide.html` while `mise run demo` runs. |
 
-To add or change a colour: change it in both theme blocks of `docket.css` and in `tokens.json`, then `mise run test`.
+To change a colour: change it in both mode blocks of its colourway in `docket.css` and in `tokens.json`, then `mise run test`. To add a colourway: add its two blocks and its record, then its id to `INKS` in `settings.js`, the list in `index.html`'s first script, and the style guide's picker; the test checks all three.
 
-## Three marks
+## Two drums
 
-| Mark | Line | Means | Used for |
+| Drum | Token | Means | Used for |
 |---|---|---|---|
-| **Ink** | solid | what is in the pull request | code, claims, headings, frames |
-| **Pencil** | dashed, grey | what the agent did or found; provisional | evidence, proofs, the work log, sources |
-| **Red** | solid, heavy | what the reviewer decides; the only binding mark | decisions, the verdict, "needs you" |
+| **Key** | `--ink`, `--text` | what is in the pull request, and what the agent found | every word and line, frames, headings, code, the primary button, the current tab |
+| **Spot** | `--spot` | **only ever yours** | your actions, your decisions, Your call, a step held for you, a count of what waits on you, the time you have |
 
-The line style carries the meaning, so the three are told apart without relying on hue.
+The agent prints in the key drum too, but in its own voice: **dashed** rules (`--pencil`) and **italic** text. A finding is told apart from a fact by line and type, not hue. Claims are checked the way a fact-checker would mark them: **True**, **False**, **Can't tell**, **Not said**.
 
-Red is never decoration and never an error colour. If something is red, it is yours.
+The spot drum is a fill, never text: under your action button as an offset print, under Your call, inside the decision triangle, behind a chosen option. Where it must carry text or a control's edge (a "Needs you" stamp, `.text-red`) it is `--spot-ink`: the spot overprinted with the key drum until it reads at 4.5:1. The wordmark and the inbox's cover art are its only decorative prints: the cover of the zine.
 
-Diffs do not use red and green. An added line is filled blue; a removed line is greyed and struck through. This keeps red free and reads the same for colour-blind reviewers.
+Diffs never use the spot drum, and never red and green: an added line is a tint of the key drum, a removed one is faint and struck through.
 
-## Two themes
+Class names that say `red` (`.btn.red`, `.stamp.red`, `.text-red`, `.bar.red`) mean the spot drum. The name is older than colourways.
 
-| Token | Whiteprint (light) | Blueprint (dark) | Job |
-|---|---|---|---|
-| `--film` | `#E9ECE6` | `#0A1C36` | the table the sheets lie on, with a faint 16 px grid |
-| `--sheet` | `#F6F7F3` | `#0F2747` | a sheet |
-| `--sunk` | `#E1E5DD` | `#0A1B33` | wells: code, inputs, the tab strip |
-| `--ink` | `#1B2163` | `#D9E6FA` | linework and headings |
-| `--text` / `-2` / `-3` | `#181B33` `#40455F` `#5D6279` | `#E7EEF9` `#B7C7E1` `#93A8C9` | body, secondary, meta |
-| `--hair` | `#B4BACB` | `#2D4A77` | hairlines |
-| `--pencil` / `--pencil-wash` | `#565B6B` `#ECEEE9` | `#A3B8D8` `#132F55` | the agent |
-| `--red` / `--red-wash` | `#BF2A1A` `#F5DCD6` | `#FF8B76` `#43202A` | the reviewer |
-| `--add` / `--del` | `#D7E1F6` `#E2E0D9` | `#1B4078` `#0A1930` | diff fills |
+## Misregistration
 
-Every text colour reads at 4.5:1 or better on the grounds it is used on, in both themes (the lowest: `red` on `red-wash`, 4.5:1; `text-3` on `sunk`, 4.7:1). `hair` is 1.8:1, so it is never used for text or for a control's only border. Quiet and disabled buttons are bordered in `text-3` (4.5:1 or better), meeting the 3:1 WCAG asks of a control's boundary; a disabled one stays dashed.
+Nothing is blurred and nothing has a shadow. What looks like one is the second drum landing off register, by `--off` (4 px): the spot drum under your action, a red banner and the toast, twice that under Your call. A title gets a faint second pass of the key drum. Pressing your action button moves it onto its spot print, as if the drums lined up.
 
-A whiteprint is a blue-violet line on drafting film; the blueprint is what it replaced, a pale line on Prussian blue. The theme follows the system by default.
+## Colourways
+
+Each is two real riso inks, chosen in Settings › Reviews and kept with the mode in the webview's storage (`docket-ink`, `docket-theme`). Both are set on `<html>` as `data-ink` and `data-theme` before first paint.
+
+| Colourway | Drums | Key / spot (light) |
+|---|---|---|
+| Black and Tomato (default) | Black · Bright Red | `#1e1d1b` / `#ff5a36` |
+| Federal and Pink | Federal Blue · Fluorescent Pink | `#2b4b9b` / `#ff5cb8` |
+| Hunter and Orange | Hunter Green · Fluorescent Orange | `#2e5b4b` / `#ff7a45` |
+| Plum and Sunflower | Plum · Sunflower | `#6e2a4e` / `#ffb511` |
+| Teal and Yellow | Teal · Yellow | `#00626a` / `#ffd60a` |
+| Blue and Orange | Medium Blue · Orange | `#2546a0` / `#ff6c2f` |
+
+Dark mode is the same two drums on black stock: the key drum turns pale, the spot stays bright.
+
+Every colourway declares the same tokens:
+
+| Token | Job |
+|---|---|
+| `--film` | the table the pages lie on, with a faint speckle of both drums |
+| `--sheet` | a page |
+| `--sunk` | wells: code, inputs, the tab strip, a hovered row, rows past the time you have |
+| `--ink` | the key drum: linework, headings, frames |
+| `--text` / `-2` / `-3` | body, secondary, meta |
+| `--hair` | hairlines; never text, never a control's only edge |
+| `--pencil` / `--pencil-wash` | the agent's dashed rules and labels, and the fill inside them |
+| `--spot` / `--spot-wash` | the spot drum, and a lighter pass of it as a ground |
+| `--spot-ink` | the spot drum where it must carry text or an edge |
+| `--on-spot`, `--on-ink` | text on a spot fill, on a key-drum fill |
+| `--add` / `--add-ink`, `--del` / `--del-ink` | diff fills and their text |
+
+On a spot-wash ground (Your call, a held step, a red banner) `--text-3` and `--pencil` fall back to `--text-2`, which reads there in every colourway. `tokens.json` lists every pair that is checked, all at 4.5:1.
 
 ## Type
 
-| Face | Job | Why |
-|---|---|---|
-| **Routed Gothic** (and Wide) | labels, titles, buttons, stamps | Drawn from the Leroy lettering templates used to letter engineering drawings. Wide, all caps, tracked out for labels; mixed case for titles. |
-| **B612** | body text, statements | Designed for Airbus cockpit displays: built to be read quickly and without mistakes. |
-| **Commit Mono** | code, numbers, paths | Neutral, with tabular figures. |
+| Face | Job |
+|---|---|
+| **Big Shoulders Display** (900) | titles, section heads, big numbers, the wordmark. Condensed poster type, always uppercase. |
+| **Work Sans** | running text and buttons. Italic is the agent's voice. |
+| **Martian Mono** | labels, tabs, stamps, code, paths and numbers. Labels are 11 px uppercase. |
 
-Routed Gothic draws `1` as a bare stroke, which reads as `I` in a label. Its `unicode-range` leaves digits out, so numbers in lettering fall through to B612.
-
-All three are bundled as WOFF2 under the SIL Open Font License; the app makes no network request for anything it shows.
+All three are the Latin subsets from Fontsource under the SIL Open Font License, bundled in `internal/web/static/fonts`; the app makes no network request for anything it shows.
 
 ## Shape
 
-- Corners are square. Nothing has a radius or a shadow.
-- Three line weights: hairline `1px`, object line `1.5px` (`--line`), border line `3px` (`--heavy`). A sheet's frame and the reviewer's panel use the border line.
+- Corners are square.
+- Lines are printed, so a little heavy: hairline `1px`, `--line` `2px` for controls and frames, `--heavy` `3px` for a sheet, Your call, a band's rule and a chosen option.
+- Stamps are set a degree or two off straight, alternating, like a rubber stamp.
+- Textures are screens of the key drum: halftone dots for "verified, worth a skim" and a second series, fine ruling for "mechanical".
 - Spacing sits on an 8 px unit (`--u`).
 
 ## Components
@@ -68,64 +88,54 @@ All three are bundled as WOFF2 under the SIL Open Font License; the app makes no
 Each has a class in `docket.css` and a rendered example in the style guide.
 
 **Frame**
-- **Sheet** (`.sheet`): the framed page. A review is a set of sheets, numbered like a drawing set: Brief, Context, one per decision, Diff, Conversation, Sign-off.
-- **Title block** (`.titleblock`): the strip of labelled cells every sheet carries: pull request, title, author, the commit that was read, sheet n of m. `.bare` drops its bottom rule (the masthead).
-- **Sheet index** (`nav.sheets`): the tabs, in reading order. The current one is lifted: sheet fill, heavy ink rule on top. A decision's tab carries its triangle and a `.tab-title`.
+- **Sheet** (`.sheet`): the page.
+- **Masthead** (`header.mast`): heads the app's own pages (the inbox, Waiting on others, Back issues, the rulebook, settings). The wordmark, printed over the spot drum; a dateline (today, the reviewer, the agent, when GitHub was last checked, and what the agent is reading now); and the ways round, each with its count. The current one is filled with the key drum.
+- **Byline** (`header.byline`, built by `byline()` in `dom.js`): heads a pull request's pages. The wordmark, then one line of facts: where it is, its title, who wrote it, the commit that was read, sheet n of m. Facts marked `.narrow-hide` drop on a phone.
+- **Sheet index** (`nav.sheets`): a review's tabs, in reading order: Brief, Context, one per decision, Diff, Conversation, Sign-off. The current one is filled with the key drum. A decision's tab carries its triangle and a `.tab-title`.
+- **Decision spread** (`.layout-spread`): a decision as a feature. The article (`.feature`) leads with a kicker (`.kicker`: the triangle, "Decision n of m" and why it is a question at all), then the `headline` in poster type (`.headline`), the finding as a fact (`.statement`), the detail, the before and after, what the agent found and the lines that matter. Beside it the **fact check** (`.factcheck`): every claim the pull request makes, the one this decision is about first, on a pass of the spot drum (`.claim.here`). Your call is the third column. Under 1180 px the fact check moves under the article; under 860 px everything stacks.
 
 **Marks**
-- **Revision triangle** (`.tri`): the drafting mark for "changed here, see revision n". It numbers the reviewer's decisions: outlined while open, filled once answered. It appears in the queue, the tabs, the claims and the sign-off, so a decision is recognisable everywhere. `.tri-link` leads a link with one.
-- **Stamp** (`.stamp`): status in a box. Solid border: established. Dashed: open. Filled red (`.contra`): contradicted. Dashed pencil (`.faint`): the agent's label. 2px red (`.red`): needs you. Filled ink (`.solid`): settled.
-- **Pencil box** (`.pencil`): anything the agent says or did.
+- **Triangle** (`.tri`): numbers your decisions, printed in the spot drum: open while unanswered, filled once answered. It appears in the inbox, the tabs, the claims and the sign-off. `.tri-link` leads a link with one.
+- **Stamp** (`.stamp`): status in a box. Solid: established. Dashed: open. Spot fill (`.contra`): contradicted. Dashed pencil (`.faint`): the agent's label. Spot ink (`.red`): needs you. Key fill (`.solid`): settled.
+- **Pencil box** (`.pencil`): anything the agent says or did, dashed.
 
-**Reviewer** (red: the next move is yours)
-- **Your call** (`.yours`): the red-framed panel. Only the reviewer's controls go in it. One per sheet, `.sticky` in the side column.
-- **Option** (`.option`): a choice with its number key, its consequence stamped on it.
-- **Held step** (`.held`): a step the agent planned on your own pull request and the gate held for you, with the gate's reason, Push it / Post reply and Send back.
+**Yours** (the spot drum: the next move is yours)
+- **Your call** (`.yours`): a pass of the spot drum under a key-drum frame, the spot printed again off register below it. Only your controls go in it. One per sheet, `.sticky` in the side column.
+- **Option** (`.option`): a choice with its number key and its consequence stamped on it. Chosen, it fills with the spot drum; the comment it drafted opens under the options, labelled with the line it attaches to, and the panel's last button goes on to the next open decision, or to Sign-off.
+- **Held step** (`.held`): a step the agent planned on your own pull request and the gate held for you.
 
 **Controls**
-- **Button** (`.btn`, `.primary`, `.red`, `.quiet`, `.small`): square and lettered; the label says what happens. One `.primary` per view. A disabled button is dashed and says why next to it.
-- **Field** (`.field`, `label.check`): a sunk well with an ink line along the bottom.
+- **Button** (`.btn`, `.primary`, `.red`, `.quiet`, `.small`): square, uppercase, outlined. `.primary` fills with the key drum. `.red` is your move: filled with the key drum, the spot drum printed under it off register; pressing it lands it on its print. A disabled button is dashed and says why next to it.
+- **Field** (`.field`, `label.check`): a sunk well with a key-drum line along the bottom.
+- **Segmented** (`.seg`): one of a few choices; the pressed one is filled.
+- **Colourway choice** (`.inks`, `.ink-choice`): a printed swatch of a colourway's two drums, overprinted where they meet. The swatch carries its own `data-ink` and `data-theme`, so it shows its colours whatever the page's.
 
 **Data**
-- **Attention bar** (`.attn`): where the changed lines go. Solid red: needs you. Hatched ink: verified. Fine ruling: mechanical.
-- **Register** (`table.reg`): every table. `tr.go` is a whole-row link. Stacked groups of one table use a fixed layout (`.queue`, `.lanes`) so their columns line up.
-- **Inbox** (`table.reg.inbox`): the one register for reviews and the user's own pull requests, in bands (`tr.bandrow`). Each row leads with its action as a red button (`.move-btn`), because the action is the user's. Under the title, `.why` says why the row sits where it is, on a dashed pencil rule: it is Docket's reasoning, not a fact from the pull request.
-- **Cut line** (`tr.cut` with `.dim`): the time the user said they have, drawn as a dimension line across the register. Rows past it (`tr.past`) recede onto the sunk ground.
-- **Tally** (`.tally`): counts at the head of an inbox; `.big.red` when the count is yours.
-- **Path** (`.path`): the path a change sits on; `.step.changed` is where it changes.
-- **Before and after** (`.ba`): see below.
-
-**Code**
-- **Diff** (`.diff`): blue fill for added lines, grey and struck through for removed ones; `.hot` puts a red rule in the margin on the lines a decision is about.
-
-**Metrics and settings**
-- **Segmented** (`.seg`): one of a few choices, such as a period; the pressed one is filled ink.
-- **Chart** (`.chart`, `.colchart`): a framed detail with its title and legend in the strip on top. Stacked columns tell their series apart by texture: solid ink (`.f-ink`), hatched (`.f-hatch`), open (`.f-open`), so they read without hue and in print. The axis has four round steps; each column has a tooltip on hover and focus.
-- **Bars** (`.hbars`): labelled bars on one scale, ink; `.track.red` only for what was the reviewer's (time on decisions, steps the agent held for them).
-- **Named numbers** (`.kv`): a list of named figures, the figure in mono at the right.
-- **Setting** (`.setting`): what a setting is, on the left; its control on the right. With **Stepper** (`.stepper`) for a small range and **Chip** (`.chip`) for a list the user edits.
-- **Area map** (`.areas`, `.area.hm0`–`.hm4`): the parts of a repository, shaded in ink by how often the reviewer read them.
+- **Attention bar** (`.attn`): where the changed lines go. Spot drum: needs you. Halftone: verified, worth a skim. Fine ruling: mechanical.
+- **Register** (`table.reg`): every table. `tr.go` is a whole-row link.
+- **Inbox** (`.sheet.issue`): an issue of a zine. The **cover** (`.cover`) says how much there is in words: the count in poster type (`.cover-n`), "things waiting on you tonight" (`.cover-head`), one sentence on the bands (`.cover-dek`), the counts that matter, the time you have, Start, and Read another; behind the count, a halftone disc and a block of the spot drum (`.cover-art`), the cover's one decorative print. The **contents page** (`.contents`) lists everything in bands (`.band`), numbered straight through (`.item-no`), each entry (`.item`) led by its title as a link, then why it is here in the agent's voice (`.why`), and on the right your move (`.btn.red`) and Snooze. A confirm opens under an entry (`.item-expand`). Under 980 px the cover sits above the contents.
+- **Cut line** (`.dim`): the time you said you have, a dashed line to cut along with a spot label. Entries past it (`.item.past`) fade to the secondary inks, and their move loses its spot print.
+- **Tally** (`.tally`): counts at the head of an inbox, in poster type; `.big.red` prints the spot drum under a count that is yours.
+- **Path** (`.path`), **Before and after** (`.ba`), **Diff** (`.diff`): the key drum only. A decision's lines carry a spot bar in the margin (`.hot`).
+- **Chart** (`.chart`, `.colchart`), **Bars** (`.hbars`), **Named numbers** (`.kv`), **Area map** (`.areas`, `.hm0`–`.hm4`): series differ by screen (solid, halftone, open), never by hue alone; the spot drum only for what was yours.
 
 **Feedback**
-- **Banner** (`.banner`, `.banner.red`): one sentence about the whole sheet. Pencil for information, red when you must know before acting.
-- **Conversation entry** (`.entry`, `.entry.on-you`): a review, comment or thread; a heavy red rule when the next move is yours.
+- **Banner** (`.banner`, `.banner.red`): one sentence about the whole sheet. Dashed for information; a spot pass when you must know before acting.
+- **Conversation entry** (`.entry`, `.entry.on-you`): a review, comment or thread; a spot bar when the next move is yours.
 - **Keys** (`.kbd`, `.live`): keyboard hints, and the square that blinks while the agent works.
+- **Toast** (`.toast`): key-drum fill, spot print under it.
+
+## Before and after
+
+The base is drawn faint and open, the head solid; both share one scale. Under each side a dimension line gives its total extent, so "5 s became 40 s" is seen before it is read. A stamp says whether the comparison was **measured** or **reasoned, not run**.
 
 ## Utilities
 
 Components draw; utilities only arrange. They sit at the end of `docket.css`, all on the 8 px unit, so screens do not need inline styles: `.row` and `.block` with `.gap-s` (4) `.gap-u` (8) `.gap-m` (12) `.gap-l` (32) `.gap-xl` (40) `.gap-2d`; alignment `.mid` `.base` `.top` `.spread` `.end` `.one-line`; spacing `.mt-s` `.mt` `.mt-l` `.mb` `.mb-l` `.py` `.my`; text `.strong` `.item-title` `.question` `.text-red` `.text-2` `.prewrap` `.nowrap` `.measure`; tables `.fit`; `.list`, `.stack`, `.sticky`, `.plain`, `.well`. Inline `style` is kept for values computed from data (a bar's width, a segment's flex).
 
-## Before and after
-
-The base is drawn in pencil, as a drawing shows a superseded state; the head in ink. Both sides always share one scale.
-
-- **Timeline**: lanes of spans (a filled bar: in flight; a dotted line: waiting) and instants (a diamond). Under each side, a dimension line gives its total extent the way a drawing gives a length, so "5 s became 40 s" is seen before it is read.
-- **Table**: named quantities on each side. A changed row carries a delta in the margin and its head value in ink on blue; unchanged rows recede.
-- **Text**: literal output side by side; lines only one side has are marked.
-- **Image**: screenshots side by side.
-
-A stamp says whether the comparison was **measured** (the agent ran both) or **reasoned, not run**.
-
 ## Voice
+
+Docket reads like a zine put together for one reader: the inbox is today's issue, posted reviews are back issues, and a decision leads with a headline the agent writes (`headline` in the brief: two to six words, nothing in it the title does not back up).
+
 
 Plain words, short sentences, no praise. State the finding as a fact, then ask the question. Buttons say what happens ("Request changes", "Spot-check a hunk"). The agent is never given a verdict to deliver, and the interface never implies it has one.

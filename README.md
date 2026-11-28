@@ -77,7 +77,7 @@ Settings is one sheet with five tabs.
   - **turn Docket off**, so its pull requests are not read, listed or worked on, and the ones already queued leave the queue.
   - override run-code.
   - override how the agent works on your pull requests.
-- **Reviews.** How often to check GitHub, the attention receipt, which desktop notifications you get, and appearance.
+- **Reviews.** How often to check GitHub, the attention receipt, which desktop notifications you get, light or dark, and the colourway: the two riso inks Docket is printed in.
 - **Data.** What is on disk and how big it is. Remove review checkouts nothing needs, copy or download the metrics ledger, read the end of the log, or clear the ledger.
 
 Metrics come from `ledger.jsonl`, an append-only record Docket adds one line to for each finished read, question, posted review, run on your pull requests, and step outcome. Reviews leave `state/` once they leave the queue, so the ledger is the only history. It starts empty, on the day you first run a version that has it.
@@ -128,7 +128,7 @@ internal/server          HTTP API, server-sent events
 internal/web/static      the UI and the design system (no build step)
 internal/desktop         the Wails 3 window, notifications, single instance
 internal/demo            sample pull requests and the scripted ACP agent
-docs/design-system.md    Whiteprint, the design system (tokens: docs/tokens.json; style guide: /static/styleguide.html)
+docs/design-system.md    Overprint, the design system (tokens: docs/tokens.json; style guide: /static/styleguide.html)
 ```
 
 `internal/acp`, `internal/agents` and `internal/loginenv` come from [Lathe](https://github.com/devenjarvis/lathe) (MIT, Deven Jarvis), with the job policies replaced.

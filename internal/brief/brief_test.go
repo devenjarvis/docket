@@ -18,7 +18,7 @@ func good() *model.Brief {
 		Summary:  "Does a thing.",
 		Sections: []model.Section{{ID: "s1", Title: "A", Kind: model.Judgment, Files: []model.FileRange{{Path: "a.go"}}}, {ID: "s2", Title: "B", Kind: model.Mechanical, Proof: "trees equal", Files: []model.FileRange{{Path: "b.go"}}}},
 		Claims:   []model.Claim{{ID: "c1", Text: "safe", Status: model.Contradicted, Evidence: "probe", Decision: "d1"}},
-		Decisions: []model.Decision{{ID: "d1", Section: "s1", Title: "It is not safe.", Question: "Accept?", Rule: "R01",
+		Decisions: []model.Decision{{ID: "d1", Section: "s1", Title: "It is not safe.", Headline: "Not safe.", Question: "Accept?", Rule: "R01",
 			Options:  []model.Option{{ID: "a", Label: "No", Effect: model.Blocking, Comment: "Fix it."}, {ID: "b", Label: "Yes", Effect: model.Accept}},
 			Anchor:   model.Anchor{Path: "a.go", Line: 1},
 			Evidence: []model.Evidence{{Kind: "probe", Title: "p", Passed: &no}}}},
@@ -45,6 +45,9 @@ func TestValidateNamesEachProblem(t *testing.T) {
 		"needs before, after":       func(b *model.Brief) { b.Decisions[0].BeforeAfter = &model.BeforeAfter{Kind: "timeline"} },
 		"summary is empty":          func(b *model.Brief) { b.Summary = " " },
 		"section \"nope\" does not": func(b *model.Brief) { b.Decisions[0].Section = "nope" },
+		"keep it to a few words": func(b *model.Brief) {
+			b.Decisions[0].Headline = "A delivery that times out is sent again, so a slow endpoint receives it five times"
+		},
 	}
 	for want, breakIt := range cases {
 		b := good()

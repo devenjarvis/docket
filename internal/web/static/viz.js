@@ -106,10 +106,10 @@ function timeline(ba) {
     key(svg("rect", { x: 1, y: 3, width: 24, height: 12, fill: "var(--ink)" }), "in flight"),
     key(svg("line", { x1: 0, x2: 26, y1: 9, y2: 9, stroke: "var(--ink)", "stroke-width": 2, "stroke-dasharray": "2 4" }), "waiting"),
     key(svg("path", { d: "M13 2 L20 9 L13 16 L6 9 Z", fill: "var(--ink)" }), "an instant"),
-    h("span", "Base is drawn in pencil, head in ink. One scale for both."));
+    h("span", "Base is drawn faint and open, head solid. One scale for both."));
 
   const pic = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `${ba.title || "Timeline"}. Base: ${ba.before.summary} Head: ${ba.after.summary}` }, grid, parts);
-  return h("div", h("div.scroll-x", h("div", { style: { minWidth: "600px" } }, pic)), legend);
+  return h("div", h("div.scroll-x", h("div", { style: { minWidth: "560px" } }, pic)), legend);
 }
 
 function key(shape, label) {

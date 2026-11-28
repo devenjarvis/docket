@@ -111,8 +111,12 @@ type Decision struct {
 	ID      string `json:"id"`
 	Section string `json:"section"`
 	// Title states the finding as a fact.
-	Title  string `json:"title"`
-	Detail string `json:"detail"`
+	Title string `json:"title"`
+	// Headline is the finding in a few words, the way a front page would put
+	// it ("Same event. Five times."). The decision sheet leads with it; when
+	// it is missing, the title leads.
+	Headline string `json:"headline,omitempty"`
+	Detail   string `json:"detail"`
 	// Question is what the reviewer must decide, phrased as a question.
 	Question string   `json:"question"`
 	Options  []Option `json:"options"`

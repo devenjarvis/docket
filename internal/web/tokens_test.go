@@ -2,23 +2,38 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
+	"math"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
 
-// docs/tokens.json is the design system's record of Whiteprint, and the
+// docs/tokens.json is the design system's record of Overprint, and the
 // Design System artifact is built from it. docket.css is what the app runs.
-// This test fails when they disagree, so neither drifts from the other.
+// These tests fail when they disagree, so neither drifts from the other, and
+// when a colourway lets a pair a component relies on drop under its contrast.
 
 type tokenFile struct {
 	Color struct {
-		Themes []struct{ ID string } `json:"themes"`
-		Tokens []struct {
-			Name  string            `json:"name"`
-			Value map[string]string `json:"value"`
+		Modes   []struct{ ID string } `json:"modes"`
+		Default string                `json:"default"`
+		Tokens  []struct {
+			Name string `json:"name"`
 		} `json:"tokens"`
+		Colourways []struct {
+			ID    string            `json:"id"`
+			Name  string            `json:"name"`
+			Light map[string]string `json:"light"`
+			Dark  map[string]string `json:"dark"`
+		} `json:"colourways"`
+		Pairs []struct {
+			Fg  string  `json:"fg"`
+			Bg  string  `json:"bg"`
+			Min float64 `json:"min"`
+		} `json:"pairs"`
 	} `json:"color"`
 	Type struct {
 		Fonts []struct {
@@ -33,12 +48,15 @@ type tokenFile struct {
 	Stroke struct {
 		Tokens []struct{ Name, Value string } `json:"tokens"`
 	} `json:"stroke"`
+	Offset struct {
+		Tokens []struct{ Name, Value string } `json:"tokens"`
+	} `json:"offset"`
 }
 
 var cssVar = regexp.MustCompile(`--([\w-]+):\s*([^;]+);`)
 
 // cssBlock returns the custom properties declared in the first rule whose
-// selector is sel.
+// selector list ends with sel.
 func cssBlock(t *testing.T, css, sel string) map[string]string {
 	t.Helper()
 	i := strings.Index(css, sel+" {")
@@ -57,7 +75,8 @@ func normColor(v string) string {
 	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(v), " ", ""))
 }
 
-func TestTokensMatchStylesheet(t *testing.T) {
+func readTokens(t *testing.T) (tokenFile, string) {
+	t.Helper()
 	raw, err := os.ReadFile("../../docs/tokens.json")
 	if err != nil {
 		t.Fatal(err)
@@ -66,43 +85,72 @@ func TestTokensMatchStylesheet(t *testing.T) {
 	if err := json.Unmarshal(raw, &tf); err != nil {
 		t.Fatalf("docs/tokens.json: %v", err)
 	}
-	cssRaw, err := files.ReadFile("static/docket.css")
+	css, err := files.ReadFile("static/docket.css")
 	if err != nil {
 		t.Fatal(err)
 	}
-	css := string(cssRaw)
-	themes := map[string]map[string]string{
-		"whiteprint": cssBlock(t, css, ":root"),
-		"blueprint":  cssBlock(t, css, `[data-theme="blueprint"]`),
-	}
-	if len(tf.Color.Themes) != 2 || tf.Color.Themes[0].ID != "whiteprint" || tf.Color.Themes[1].ID != "blueprint" {
-		t.Fatalf("tokens.json themes must be whiteprint then blueprint, got %+v", tf.Color.Themes)
-	}
+	return tf, string(css)
+}
 
-	// Every colour token is declared in both themes with the same value.
+func modes(tf tokenFile, i int) map[string]map[string]string {
+	c := tf.Color.Colourways[i]
+	return map[string]map[string]string{"light": c.Light, "dark": c.Dark}
+}
+
+func TestTokensMatchStylesheet(t *testing.T) {
+	tf, css := readTokens(t)
+	if len(tf.Color.Modes) != 2 || tf.Color.Modes[0].ID != "light" || tf.Color.Modes[1].ID != "dark" {
+		t.Fatalf("tokens.json modes must be light then dark, got %+v", tf.Color.Modes)
+	}
+	if len(tf.Color.Colourways) == 0 || tf.Color.Colourways[0].ID != tf.Color.Default {
+		t.Fatalf("the default colourway %q must be listed first", tf.Color.Default)
+	}
 	named := map[string]bool{}
 	for _, tok := range tf.Color.Tokens {
 		named[tok.Name] = true
-		for theme, vars := range themes {
-			got, ok := vars[tok.Name]
-			if !ok {
-				t.Errorf("--%s is in tokens.json but not declared for %s in docket.css", tok.Name, theme)
-				continue
+	}
+
+	// Every colourway is declared in both modes with exactly the recorded
+	// tokens, and the default light block is also :root.
+	for i, cw := range tf.Color.Colourways {
+		for mode, want := range modes(tf, i) {
+			sel := fmt.Sprintf(`[data-ink="%s"][data-theme="%s"]`, cw.ID, mode)
+			got := cssBlock(t, css, sel)
+			for _, tok := range tf.Color.Tokens {
+				w, ok := want[tok.Name]
+				if !ok {
+					t.Errorf("%s %s: tokens.json gives no value for --%s", cw.ID, mode, tok.Name)
+					continue
+				}
+				if normColor(got[tok.Name]) != normColor(w) {
+					t.Errorf("--%s (%s %s): docket.css has %q, tokens.json has %q", tok.Name, cw.ID, mode, got[tok.Name], w)
+				}
 			}
-			if normColor(got) != normColor(tok.Value[theme]) {
-				t.Errorf("--%s (%s): docket.css has %s, tokens.json has %s", tok.Name, theme, got, tok.Value[theme])
+			for name := range got {
+				if !named[name] {
+					t.Errorf("docket.css declares --%s for %s %s, but tokens.json does not record it", name, cw.ID, mode)
+				}
 			}
 		}
 	}
-	// Every colour docket.css declares in the dark theme is a token: a new
-	// colour has to be recorded before it ships.
-	for name := range themes["blueprint"] {
-		if !named[name] {
-			t.Errorf("docket.css declares --%s for blueprint, but tokens.json does not record it", name)
+	if !strings.Contains(css, fmt.Sprintf(`:root, [data-ink="%s"][data-theme="light"] {`, tf.Color.Default)) {
+		t.Errorf("the default colourway's light block must also be :root, so a page with no data-ink still has colour")
+	}
+	// The colourways the settings offer and the ones set before first paint
+	// are the ones the stylesheet has.
+	for _, f := range []string{"static/settings.js", "static/index.html", "static/styleguide.html"} {
+		raw, err := files.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, cw := range tf.Color.Colourways {
+			if !strings.Contains(string(raw), `"`+cw.ID+`"`) {
+				t.Errorf("%s does not offer the colourway %s", f, cw.ID)
+			}
 		}
 	}
 
-	root := themes["whiteprint"]
+	root := cssBlock(t, css, ":root")
 	find := func(list []struct{ Name, Value string }, name string) string {
 		for _, x := range list {
 			if x.Name == name {
@@ -111,9 +159,12 @@ func TestTokensMatchStylesheet(t *testing.T) {
 		}
 		return ""
 	}
-	for css, tok := range map[string]string{"u": find(tf.Spacing.Tokens, "u"), "line": find(tf.Stroke.Tokens, "line"), "heavy": find(tf.Stroke.Tokens, "heavy")} {
-		if root[css] != tok {
-			t.Errorf("--%s: docket.css has %q, tokens.json has %q", css, root[css], tok)
+	for v, tok := range map[string]string{
+		"u": find(tf.Spacing.Tokens, "u"), "line": find(tf.Stroke.Tokens, "line"),
+		"heavy": find(tf.Stroke.Tokens, "heavy"), "off": find(tf.Offset.Tokens, "off"),
+	} {
+		if root[v] != tok {
+			t.Errorf("--%s: docket.css has %q, tokens.json has %q", v, root[v], tok)
 		}
 	}
 	for key, stack := range tf.Type.Families {
@@ -131,4 +182,53 @@ func TestTokensMatchStylesheet(t *testing.T) {
 			t.Errorf("font %s has no @font-face in docket.css", f.File)
 		}
 	}
+}
+
+// TestContrast checks every pair a component relies on, in every colourway
+// and both modes, against the minimum tokens.json records for it.
+func TestContrast(t *testing.T) {
+	tf, _ := readTokens(t)
+	if len(tf.Color.Pairs) == 0 {
+		t.Fatal("tokens.json records no contrast pairs")
+	}
+	for i, cw := range tf.Color.Colourways {
+		for mode, v := range modes(tf, i) {
+			for _, p := range tf.Color.Pairs {
+				got := contrast(t, v[p.Fg], v[p.Bg])
+				if got+1e-9 < p.Min {
+					t.Errorf("%s %s: --%s on --%s is %.2f:1, needs %.1f:1", cw.ID, mode, p.Fg, p.Bg, got, p.Min)
+				}
+			}
+		}
+	}
+}
+
+func luminance(t *testing.T, hex string) float64 {
+	t.Helper()
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		t.Fatalf("%q is not a #rrggbb colour", hex)
+	}
+	var c [3]float64
+	for i := range c {
+		n, err := strconv.ParseUint(hex[i*2:i*2+2], 16, 8)
+		if err != nil {
+			t.Fatalf("%q: %v", hex, err)
+		}
+		x := float64(n) / 255
+		if x <= 0.03928 {
+			c[i] = x / 12.92
+		} else {
+			c[i] = math.Pow((x+0.055)/1.055, 2.4)
+		}
+	}
+	return 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]
+}
+
+func contrast(t *testing.T, a, b string) float64 {
+	la, lb := luminance(t, a), luminance(t, b)
+	if la < lb {
+		la, lb = lb, la
+	}
+	return (la + 0.05) / (lb + 0.05)
 }
