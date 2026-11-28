@@ -14,6 +14,7 @@ import (
 	"github.com/devenjarvis/docket/internal/demo"
 	"github.com/devenjarvis/docket/internal/gh"
 	"github.com/devenjarvis/docket/internal/ledger"
+	"github.com/devenjarvis/docket/internal/lens"
 	"github.com/devenjarvis/docket/internal/repo"
 	"github.com/devenjarvis/docket/internal/review"
 	"github.com/devenjarvis/docket/internal/rules"
@@ -70,6 +71,11 @@ func Start(ctx context.Context, opts Options) (*App, error) {
 		demo.Seed(home, rs)
 	}
 	eng := review.New(home, ghc, prep, rs)
+	ls, err := lens.Open(home)
+	if err != nil {
+		return nil, err
+	}
+	eng.Lenses = ls
 	if in, ok := ghc.(gh.Inbox); ok {
 		eng.Inbox = in
 	}
@@ -106,6 +112,14 @@ func Start(ctx context.Context, opts Options) (*App, error) {
 	eng.RunCode = func(repo string) bool {
 		c, _ := config.Read()
 		return c.RunsIn(repo)
+	}
+	eng.Strategy = func(repo string) string {
+		c, _ := config.Read()
+		return c.StrategyIn(repo)
+	}
+	eng.Instructions = func() string {
+		c, _ := config.Read()
+		return c.Instructions
 	}
 	c, _ := config.Read()
 	srv.StartedPoll, srv.StartedWorkers = c.Poll(), c.Workers()

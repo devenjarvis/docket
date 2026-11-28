@@ -38,6 +38,12 @@ type Config struct {
 	// way it reads others': auto (every new head), ask (when the user asks)
 	// or off.
 	SelfReview string `json:"self_review,omitempty"`
+	// Strategy is how a pull request is read: single, panel, swarm or
+	// critic (see the Strategy* constants).
+	Strategy string `json:"strategy,omitempty"`
+	// Instructions are the user's standing instructions, given to every
+	// reading session after Docket's own prompt.
+	Instructions string `json:"instructions,omitempty"`
 	// Repos holds what the user set for one repository (owner/name),
 	// overriding the settings above.
 	Repos map[string]Repo `json:"repos,omitempty"`
@@ -61,6 +67,8 @@ type Repo struct {
 	Tend string `json:"tend,omitempty"`
 	// SelfReview, when set (auto, ask or off), overrides Config.SelfReview.
 	SelfReview string `json:"self_review,omitempty"`
+	// Strategy, when set, overrides Config.Strategy here.
+	Strategy string `json:"strategy,omitempty"`
 }
 
 // Price is a model's price in US dollars per million tokens.
@@ -138,6 +146,56 @@ func (c Config) SelfMode() string {
 	}
 	return "auto"
 }
+
+// How a pull request is read.
+const (
+	// StrategySingle is one session of the agent's own model, reading the
+	// whole change and writing the brief.
+	StrategySingle = "single"
+	// StrategyPanel runs the lenses first, each a read-only session on the
+	// agent's smallest model, then one session of the agent's own model
+	// checks what they found and writes the brief.
+	StrategyPanel = "panel"
+	// StrategySwarm is the panel with the brief written on the smallest
+	// model too: every session is a small one.
+	StrategySwarm = "swarm"
+	// StrategyCritic is one read, then a second session of the same model
+	// that tries to knock down each finding and claim and rewrites the brief
+	// without the ones that fall.
+	StrategyCritic = "critic"
+)
+
+// Strategies lists every strategy, in the order Settings shows them.
+var Strategies = []string{StrategySingle, StrategyPanel, StrategySwarm, StrategyCritic}
+
+// ValidStrategy reports whether s names a strategy.
+func ValidStrategy(s string) bool {
+	for _, v := range Strategies {
+		if s == v {
+			return true
+		}
+	}
+	return false
+}
+
+// StrategyMode is Strategy with its default, single.
+func (c Config) StrategyMode() string {
+	if ValidStrategy(c.Strategy) {
+		return c.Strategy
+	}
+	return StrategySingle
+}
+
+// StrategyIn is the strategy for repo: its own when set, else StrategyMode.
+func (c Config) StrategyIn(repo string) string {
+	if s := c.Repos[repo].Strategy; ValidStrategy(s) {
+		return s
+	}
+	return c.StrategyMode()
+}
+
+// MaxInstructions bounds the user's standing instructions.
+const MaxInstructions = 4000
 
 func (c Config) Poll() int {
 	if c.PollSeconds < 30 {

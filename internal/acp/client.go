@@ -371,6 +371,18 @@ func hasWord(s, word string) bool {
 	return false
 }
 
+// SessionModel is the model sessionID runs on, as the agent reported it at
+// session/new or after SetModel, or "" if it reports none. With several
+// sessions on one client on different models, use this rather than Model.
+func (c *Client) SessionModel(sessionID string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if u := c.usage[sessionID]; u != nil {
+		return u.model
+	}
+	return ""
+}
+
 // Model is the model the agent last reported for a new session (its display
 // name when the agent gave one), or "" if it reports none.
 func (c *Client) Model() string {

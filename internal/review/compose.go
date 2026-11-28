@@ -418,7 +418,7 @@ func postEntry(r model.Review, event string, receipt bool) ledger.Entry {
 	sum := summarize(&r)
 	en := ledger.Entry{Kind: ledger.KindPost, Repo: r.PR.Owner + "/" + r.PR.Repo, Number: r.PR.Number, Event: event,
 		Agent: r.Agent, Model: r.Model, NeedLines: sum.NeedLines, TotalLines: sum.TotalLines, Decisions: sum.Decisions,
-		Answered: sum.Answered, Asks: len(r.Asks), Receipt: receipt, Time: map[string]int{}}
+		Answered: sum.Answered, Asks: len(r.Asks), Receipt: receipt, Time: map[string]int{}, Strategy: r.Strategy}
 	decisions, sections := map[string]model.Decision{}, map[string]bool{}
 	if b := r.Brief; b != nil {
 		for _, d := range b.Decisions {
@@ -456,7 +456,21 @@ func postEntry(r model.Review, event string, receipt bool) ledger.Entry {
 		for _, o := range d.Options {
 			if o.ID == a.Option && o.Effect == model.Blocking {
 				en.Blocking++
+				if d.Lens != "" {
+					if en.LensBlocking == nil {
+						en.LensBlocking = map[string]int{}
+					}
+					en.LensBlocking[d.Lens]++
+				}
 			}
+		}
+	}
+	for _, d := range decisions {
+		if d.Lens != "" {
+			if en.LensDecisions == nil {
+				en.LensDecisions = map[string]int{}
+			}
+			en.LensDecisions[d.Lens]++
 		}
 	}
 	return en

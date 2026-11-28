@@ -6,6 +6,7 @@ package brief
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/devenjarvis/docket/internal/diff"
@@ -222,4 +223,70 @@ func Fill(b *model.Brief, files []diff.File) {
 		}
 		b.Sections[i].Lines = n
 	}
+}
+
+// Lead is one finding a lens hands the lead reader.
+type Lead struct {
+	Title    string `json:"title"`
+	Detail   string `json:"detail,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Line     int    `json:"line,omitempty"`
+	Severity string `json:"severity,omitempty"`
+	Evidence string `json:"evidence,omitempty"`
+}
+
+// MaxLeads is how many findings Docket takes from one lens.
+const MaxLeads = 8
+
+// ParseLeads decodes a lens's findings file, tolerating a code fence. Leads
+// with no title are dropped, and at most MaxLeads are kept.
+func ParseLeads(b []byte) ([]Lead, error) {
+	s := strings.TrimSpace(string(b))
+	if strings.HasPrefix(s, "```") {
+		if i := strings.Index(s, "\n"); i >= 0 {
+			s = s[i+1:]
+		}
+		s = strings.TrimSuffix(strings.TrimSpace(s), "```")
+	}
+	var out struct {
+		Findings []Lead `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return nil, fmt.Errorf("findings.json is not valid JSON: %w", err)
+	}
+	leads := []Lead{}
+	for _, l := range out.Findings {
+		if strings.TrimSpace(l.Title) == "" {
+			continue
+		}
+		if !oneOf(l.Severity, "high", "medium", "low") {
+			l.Severity = "medium"
+		}
+		leads = append(leads, l)
+		if len(leads) == MaxLeads {
+			break
+		}
+	}
+	return leads, nil
+}
+
+// ValidateLenses returns a problem for each decision whose lens is not one
+// of the lenses that ran.
+func ValidateLenses(b *model.Brief, ids map[string]bool) []string {
+	var errs []string
+	for _, d := range b.Decisions {
+		if d.Lens != "" && !ids[d.Lens] {
+			names := make([]string, 0, len(ids))
+			for id := range ids {
+				names = append(names, id)
+			}
+			sort.Strings(names)
+			if len(names) == 0 {
+				errs = append(errs, fmt.Sprintf("decision %q: lens %q did not run; leave lens empty", d.ID, d.Lens))
+			} else {
+				errs = append(errs, fmt.Sprintf("decision %q: lens %q is not one of the lenses that ran (%s)", d.ID, d.Lens, strings.Join(names, ", ")))
+			}
+		}
+	}
+	return errs
 }

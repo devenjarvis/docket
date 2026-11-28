@@ -93,6 +93,7 @@ func (e *Engine) read(parent context.Context, key string) {
 	repoName := pr.Owner + "/" + pr.Repo
 	runCode := e.runsIn(repoName)
 	var client *acp.Client
+	var session string
 	entry := ledger.Entry{Kind: ledger.KindRead, Repo: repoName, Number: pr.Number, Agent: agentName, Reread: previous != nil}
 	if self {
 		entry.Kind = ledger.KindSelf
@@ -107,6 +108,9 @@ func (e *Engine) read(parent context.Context, key string) {
 		entry.Failed, entry.Seconds = true, int(time.Since(started).Seconds())
 		if client != nil {
 			entry.Model, entry.Usage = client.Model(), client.Usage()
+			if m := client.SessionModel(session); session != "" && m != "" {
+				entry.Model = m
+			}
 		}
 		e.record(entry)
 	}()
@@ -194,7 +198,7 @@ func (e *Engine) read(parent context.Context, key string) {
 		return
 	}
 	defer client.Close()
-	session, err := client.NewSession(ctx, ws.Head)
+	session, err = client.NewSession(ctx, ws.Head)
 	if err != nil {
 		e.fail(key, fmt.Errorf("%s would not open a session: %w%s", agentName, err, tail(stderr.String())))
 		return
@@ -202,7 +206,37 @@ func (e *Engine) read(parent context.Context, key string) {
 	client.SetPolicy(session, acp.ReviewPolicy(ws.Dir, ws.Head, ws.Base, ws.Scratch, ws.Out))
 	h := &handler{runCode: runCode, onActivity: func(s string) { e.setActivity(key, s) }}
 
-	prompt := brief.Prompt(brief.PromptData{Workspace: ws, RunCode: runCode, Slice: slice != nil, Previous: previous != nil, Self: self})
+	strategy := e.strategyIn(repoName)
+	var lensRuns []model.LensRun
+	lensIDs := map[string]bool{}
+	if strategy == config.StrategyPanel || strategy == config.StrategySwarm {
+		lenses := e.activeLenses()
+		if len(lenses) == 0 {
+			e.Logf("%s: the %s strategy has no lens turned on, so one reader reads it", key, strategy)
+			strategy = config.StrategySingle
+		} else {
+			_ = os.Remove(filepath.Join(ws.Dir, "lenses.json"))
+			lensRuns, lensIDs, err = e.runPanel(ctx, key, client, ws, lenses, self, slice != nil)
+			if err != nil {
+				if ctx.Err() != nil && parent.Err() == nil && errors.Is(ctx.Err(), context.Canceled) {
+					return // superseded by a newer push or a re-read
+				}
+				e.fail(key, fmt.Errorf("the lenses could not finish: %w", err))
+				return
+			}
+			if len(lensIDs) == 0 {
+				e.Logf("%s: every lens failed, so the lead reads without leads", key)
+			}
+		}
+	}
+	entry.Strategy, entry.Lenses = strategy, lensRuns
+	if strategy == config.StrategySwarm {
+		useSmallest(ctx, client, session)
+	}
+	e.setActivity(key, "Reading the change")
+
+	prompt := brief.Prompt(brief.PromptData{Workspace: ws, RunCode: runCode, Slice: slice != nil, Previous: previous != nil, Self: self,
+		Lenses: len(lensIDs) > 0, Instructions: e.instructions()})
 	var b *model.Brief
 	for attempt := 0; ; attempt++ {
 		entry.Tries = attempt + 1
@@ -224,7 +258,7 @@ func (e *Engine) read(parent context.Context, key string) {
 			if err != nil {
 				problems = []string{err.Error()}
 			} else {
-				problems = brief.Validate(b, files, ruleIDs)
+				problems = append(brief.Validate(b, files, ruleIDs), brief.ValidateLenses(b, lensIDs)...)
 			}
 		}
 		if len(problems) == 0 {
@@ -237,6 +271,21 @@ func (e *Engine) read(parent context.Context, key string) {
 		e.setActivity(key, "Asking the agent to fix its brief")
 		prompt = brief.RetryPrompt(ws.Out, problems)
 	}
+	var critic *model.CriticRun
+	if strategy == config.StrategyCritic {
+		b, critic = e.runCritic(ctx, key, client, ws, files, ruleIDs, lensIDs, b, runCode, self)
+		if ctx.Err() != nil {
+			if parent.Err() == nil && errors.Is(ctx.Err(), context.Canceled) {
+				return // superseded by a newer push or a re-read
+			}
+			e.fail(key, fmt.Errorf("%s stopped before finishing: %w", agentName, ctx.Err()))
+			return
+		}
+		if critic != nil {
+			entry.Dropped = len(critic.Dropped)
+		}
+	}
+	keptByLens(lensRuns, b)
 	brief.Fill(b, files)
 
 	e.mu.Lock()
@@ -260,7 +309,11 @@ func (e *Engine) read(parent context.Context, key string) {
 	r.Answers = keep
 	r.Brief, r.ReadSHA, r.Slice = b, pr.HeadSHA, slice
 	r.Status, r.Activity, r.Error = "ready", "", ""
-	r.Agent, r.Model = agentName, client.Model()
+	r.Agent, r.Model = agentName, client.SessionModel(session)
+	if r.Model == "" {
+		r.Model = client.Model()
+	}
+	r.Strategy, r.Lenses, r.Critic = strategy, lensRuns, critic
 	r.ReadAt, r.ReadTook = time.Now(), int(time.Since(started).Seconds())
 	r.Isolation = client.Isolation().State
 	r.Posted = nil

@@ -18,6 +18,7 @@ import (
 	"github.com/devenjarvis/docket/internal/acp"
 	"github.com/devenjarvis/docket/internal/config"
 	"github.com/devenjarvis/docket/internal/ledger"
+	"github.com/devenjarvis/docket/internal/lens"
 	"github.com/devenjarvis/docket/internal/model"
 	"github.com/devenjarvis/docket/internal/review"
 )
@@ -34,6 +35,11 @@ func (s *Server) settingsRoutes() {
 	s.mux.HandleFunc("GET /api/ledger", s.ledgerRaw)
 	s.mux.HandleFunc("POST /api/ledger/clear", s.ledgerClear)
 	s.mux.HandleFunc("POST /api/agent/check", s.checkAgent)
+	s.mux.HandleFunc("GET /api/lenses", s.lenses)
+	s.mux.HandleFunc("POST /api/lens", s.saveLens)
+	s.mux.HandleFunc("POST /api/lens/delete", s.deleteLens)
+	s.mux.HandleFunc("POST /api/lens/reset", s.resetLens)
+	s.mux.HandleFunc("POST /api/lenses/restore", s.restoreLenses)
 }
 
 func (s *Server) ledger() *ledger.Ledger {
@@ -91,8 +97,10 @@ type RepoRow struct {
 	RunCode string `json:"runCode"` // default, on or off
 	Tend    string `json:"tend"`    // default, auto, ask or off
 	Self    string `json:"self"`    // default, auto, ask or off
-	Reviews int    `json:"reviews"` // reviews posted, from the ledger
-	Open    int    `json:"open"`    // in the queue or among yours now
+	// Strategy is default or one of config.Strategies.
+	Strategy string `json:"strategy"`
+	Reviews  int    `json:"reviews"` // reviews posted, from the ledger
+	Open     int    `json:"open"`    // in the queue or among yours now
 }
 
 // knownRepos lists every repository Docket has met: in the queue, among the
@@ -107,7 +115,7 @@ func (s *Server) knownRepos() []RepoRow {
 		}
 		r := rows[repo]
 		if r == nil {
-			r = &RepoRow{Repo: repo, RunCode: "default", Tend: "default", Self: "default"}
+			r = &RepoRow{Repo: repo, RunCode: "default", Tend: "default", Self: "default", Strategy: "default"}
 			rows[repo] = r
 		}
 		return r
@@ -140,6 +148,9 @@ func (s *Server) knownRepos() []RepoRow {
 		if rc.SelfReview != "" {
 			r.Self = rc.SelfReview
 		}
+		if rc.Strategy != "" {
+			r.Strategy = rc.Strategy
+		}
 	}
 	out := make([]RepoRow, 0, len(rows))
 	for _, r := range rows {
@@ -167,6 +178,8 @@ func (s *Server) setRepo(w http.ResponseWriter, r *http.Request) {
 		RunCode *string `json:"runCode"`
 		Tend    *string `json:"tend"`
 		Self    *string `json:"self"`
+		// Strategy is default or a strategy.
+		Strategy *string `json:"strategy"`
 	}](w, r)
 	if !ok {
 		return
@@ -218,6 +231,17 @@ func (s *Server) setRepo(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if in.Strategy != nil {
+		switch v := *in.Strategy; {
+		case v == "default":
+			rc.Strategy = ""
+		case config.ValidStrategy(v):
+			rc.Strategy = v
+		default:
+			fail(w, 400, fmt.Errorf("strategy must be default or one of %s", strings.Join(config.Strategies, ", ")))
+			return
+		}
+	}
 	if rc == (config.Repo{}) {
 		delete(c.Repos, repo)
 	} else {
@@ -266,6 +290,7 @@ func (s *Server) data(w http.ResponseWriter, _ *http.Request) {
 		{"repos", "Bare clones", 0},
 		{"state", "Reviews and your pull requests in progress", 0},
 		{"rules", "Rulebook, with its history", 0},
+		{"lenses", "Lenses: the panel's focused reviewers", 0},
 		{"ledger.jsonl", "Metrics ledger", 0},
 		{"map.json", "What you know of each repository", 0},
 		{"config.json", "Settings", 0},
@@ -387,4 +412,147 @@ func tailText(s string) string {
 		s = "…" + s[len(s)-400:]
 	}
 	return ": " + s
+}
+
+// lensStore is the engine's lens store, opened on demand when the engine
+// was built without one.
+func (s *Server) lensStore() (*lens.Store, error) {
+	if s.Eng.Lenses != nil {
+		return s.Eng.Lenses, nil
+	}
+	ls, err := lens.Open(s.Home)
+	if err != nil {
+		return nil, err
+	}
+	s.Eng.Lenses = ls
+	return ls, nil
+}
+
+func (s *Server) writeLenses(w http.ResponseWriter, extra map[string]any) {
+	ls, err := s.lensStore()
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	all, err := ls.List()
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	missing := 0
+	have := map[string]bool{}
+	for _, l := range all {
+		have[l.ID] = true
+	}
+	for _, d := range lens.Defaults() {
+		if !have[d.ID] {
+			missing++
+		}
+	}
+	out := map[string]any{"lenses": all, "dir": ls.Dir(), "missingBuiltins": missing, "maxText": lens.MaxText}
+	for k, v := range extra {
+		out[k] = v
+	}
+	writeJSON(w, out)
+}
+
+// lenses lists the panel, with the lens directory and how many built-in
+// lenses were deleted and could be restored.
+func (s *Server) lenses(w http.ResponseWriter, _ *http.Request) { s.writeLenses(w, nil) }
+
+// saveLens creates or changes one lens. A lens with no id is new.
+func (s *Server) saveLens(w http.ResponseWriter, r *http.Request) {
+	in, ok := read[struct {
+		ID   string  `json:"id"`
+		Name *string `json:"name"`
+		Text *string `json:"text"`
+		On   *bool   `json:"on"`
+	}](w, r)
+	if !ok {
+		return
+	}
+	ls, err := s.lensStore()
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	l, exists := lens.Lens{On: true}, false
+	if in.ID != "" {
+		l, exists = ls.Get(in.ID)
+		if !exists {
+			fail(w, 404, errors.New("no such lens"))
+			return
+		}
+	} else if in.Name != nil {
+		if _, taken := ls.Get(lens.ID(*in.Name)); taken {
+			fail(w, 400, errors.New("a lens with that name exists: pick another name"))
+			return
+		}
+	}
+	if in.Name != nil {
+		l.Name = *in.Name
+	}
+	if in.Text != nil {
+		l.Text = *in.Text
+	}
+	if in.On != nil {
+		l.On = *in.On
+	}
+	saved, err := ls.Save(l)
+	if err != nil {
+		fail(w, 400, err)
+		return
+	}
+	s.writeLenses(w, map[string]any{"saved": saved.ID})
+}
+
+func (s *Server) deleteLens(w http.ResponseWriter, r *http.Request) {
+	in, ok := read[struct {
+		ID string `json:"id"`
+	}](w, r)
+	if !ok {
+		return
+	}
+	ls, err := s.lensStore()
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	if err := ls.Delete(in.ID); err != nil {
+		fail(w, 400, err)
+		return
+	}
+	s.writeLenses(w, nil)
+}
+
+func (s *Server) resetLens(w http.ResponseWriter, r *http.Request) {
+	in, ok := read[struct {
+		ID string `json:"id"`
+	}](w, r)
+	if !ok {
+		return
+	}
+	ls, err := s.lensStore()
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	if _, err := ls.Reset(in.ID); err != nil {
+		fail(w, 400, err)
+		return
+	}
+	s.writeLenses(w, nil)
+}
+
+func (s *Server) restoreLenses(w http.ResponseWriter, _ *http.Request) {
+	ls, err := s.lensStore()
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	if err := ls.Restore(); err != nil {
+		fail(w, 500, err)
+		return
+	}
+	s.writeLenses(w, nil)
 }

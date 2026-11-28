@@ -7,6 +7,7 @@ import (
 
 	"github.com/devenjarvis/docket/internal/acp"
 	"github.com/devenjarvis/docket/internal/config"
+	"github.com/devenjarvis/docket/internal/model"
 )
 
 func TestAddAllClear(t *testing.T) {
@@ -89,5 +90,51 @@ func TestSummarize(t *testing.T) {
 	}
 	if n != 2 {
 		t.Fatalf("bucketed verdicts %d", n)
+	}
+}
+
+func TestSummarizeComparesStrategiesAndLenses(t *testing.T) {
+	to := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+	at := to.AddDate(0, 0, -1)
+	cost := func(c float64) []acp.Usage { return []acp.Usage{{Model: "m", HasCost: true, Cost: c, Currency: "USD"}} }
+	all := []Entry{
+		// Before strategies existed: counted as single.
+		{At: at, Kind: KindRead, Seconds: 100, Decisions: 2, Usage: cost(1)},
+		{At: at, Kind: KindRead, Strategy: config.StrategyPanel, Seconds: 300, Decisions: 3, Usage: cost(0.5), Lenses: []model.LensRun{
+			{ID: "security", Name: "Security", Leads: 2, Kept: 1},
+			{ID: "tests", Name: "Tests", Leads: 3, Kept: 2},
+			{ID: "claims", Name: "Description against code", Failed: true},
+		}},
+		{At: at, Kind: KindRead, Strategy: config.StrategyCritic, Failed: true},
+		{At: at, Kind: KindRead, Strategy: config.StrategyCritic, Seconds: 200, Decisions: 1, Dropped: 2},
+		{At: at, Kind: KindPost, Strategy: config.StrategyPanel, Decisions: 3, Blocking: 1,
+			LensDecisions: map[string]int{"security": 1, "tests": 2}, LensBlocking: map[string]int{"security": 1}},
+	}
+	r := Summarize(all, to.AddDate(0, 0, -7), to, nil)
+	if len(r.Strategies) != 3 {
+		t.Fatalf("strategies = %+v", r.Strategies)
+	}
+	single, panel, critic := r.Strategies[0], r.Strategies[1], r.Strategies[2]
+	if single.Strategy != config.StrategySingle || single.Reads != 1 || single.Cost != 1 || single.Decisions != 2 {
+		t.Errorf("single = %+v", single)
+	}
+	if panel.Strategy != config.StrategyPanel || panel.Signed != 1 || panel.Blocking != 1 || panel.SignedDecisions != 3 || panel.ReadMedian != 300 || panel.Cost != 0.5 {
+		t.Errorf("panel = %+v", panel)
+	}
+	if critic.Reads != 2 || critic.Failed != 1 || critic.Dropped != 2 || critic.ReadMedian != 200 {
+		t.Errorf("critic = %+v", critic)
+	}
+	byID := map[string]LensRow{}
+	for _, l := range r.Lenses {
+		byID[l.ID] = l
+	}
+	if l := byID["tests"]; l.Leads != 3 || l.Kept != 2 || l.Signed != 2 || l.Blocking != 0 || r.Lenses[0].ID != "tests" {
+		t.Errorf("tests lens = %+v (first: %s)", l, r.Lenses[0].ID)
+	}
+	if l := byID["security"]; l.Blocking != 1 || l.Name != "Security" {
+		t.Errorf("security lens = %+v", l)
+	}
+	if l := byID["claims"]; l.Failed != 1 || l.Runs != 1 {
+		t.Errorf("claims lens = %+v", l)
 	}
 }

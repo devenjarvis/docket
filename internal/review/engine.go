@@ -19,6 +19,7 @@ import (
 	"github.com/devenjarvis/docket/internal/diff"
 	"github.com/devenjarvis/docket/internal/gh"
 	"github.com/devenjarvis/docket/internal/ledger"
+	"github.com/devenjarvis/docket/internal/lens"
 	"github.com/devenjarvis/docket/internal/model"
 	"github.com/devenjarvis/docket/internal/repo"
 	"github.com/devenjarvis/docket/internal/rules"
@@ -50,6 +51,14 @@ type Engine struct {
 	Agent func() (command, name string)
 	// RunCode reports whether the agent may execute a repository's code.
 	RunCode func(repo string) bool
+	// Strategy, when set, returns how a repository's pull requests are read
+	// (config.Strategy*). Unset means single.
+	Strategy func(repo string) string
+	// Lenses, when set, is the panel the panel and swarm strategies run.
+	Lenses *lens.Store
+	// Instructions, when set, returns the user's standing instructions for
+	// every reading session.
+	Instructions func() string
 	// RepoOff, when set, reports whether the user turned Docket off for a
 	// repository: its pull requests are then not read, listed or worked on.
 	RepoOff func(repo string) bool

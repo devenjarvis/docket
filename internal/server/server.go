@@ -160,8 +160,9 @@ func (s *Server) state(w http.ResponseWriter, _ *http.Request) {
 			"agent": c.Agent, "agentCommand": c.AgentCommand, "pollSeconds": c.Poll(),
 			"theme": c.Theme, "receipt": c.Receipt(), "runCode": c.Runs(), "tend": c.TendMode(), "selfReview": c.SelfMode(),
 			"agentPath": nonNil(c.AgentPath), "concurrency": c.Workers(), "notifyOff": nonNil(c.NotifyOff),
-			"prices": c.Prices,
+			"prices": c.Prices, "strategy": c.StrategyMode(), "instructions": c.Instructions,
 		},
+		"strategies":  config.Strategies,
 		"notifyKinds": config.NotifyKinds,
 		// Poll and concurrency are read once, when Docket starts.
 		"started": map[string]int{"pollSeconds": s.StartedPoll, "concurrency": s.StartedWorkers},
@@ -432,6 +433,8 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 		RunCode      *bool                    `json:"runCode"`
 		Tend         *string                  `json:"tend"`
 		SelfReview   *string                  `json:"selfReview"`
+		Strategy     *string                  `json:"strategy"`
+		Instructions *string                  `json:"instructions"`
 		AgentPath    *[]string                `json:"agentPath"`
 		Concurrency  *int                     `json:"concurrency"`
 		NotifyOff    *[]string                `json:"notifyOff"`
@@ -512,6 +515,21 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, fmt.Errorf("selfReview must be auto, ask or off"))
 			return
 		}
+	}
+	if in.Strategy != nil {
+		if !config.ValidStrategy(*in.Strategy) {
+			fail(w, 400, fmt.Errorf("strategy must be one of %s", strings.Join(config.Strategies, ", ")))
+			return
+		}
+		c.Strategy = *in.Strategy
+	}
+	if in.Instructions != nil {
+		v := strings.TrimSpace(*in.Instructions)
+		if len(v) > config.MaxInstructions {
+			fail(w, 400, fmt.Errorf("keep standing instructions under %d characters; these are %d", config.MaxInstructions, len(v)))
+			return
+		}
+		c.Instructions = v
 	}
 	if err := config.Write(c); err != nil {
 		fail(w, 500, err)
