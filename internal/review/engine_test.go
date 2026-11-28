@@ -3,6 +3,7 @@ package review_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -213,6 +214,7 @@ type closingGitHub struct {
 	mu     sync.Mutex
 	merged map[string]bool
 	hidden map[string]bool
+	broken map[string]bool
 }
 
 func (g *closingGitHub) Assigned(ctx context.Context) ([]model.PR, error) {
@@ -232,6 +234,9 @@ func (g *closingGitHub) PR(ctx context.Context, owner, repo string, n int) (mode
 	p, err := g.GitHub.PR(ctx, owner, repo, n)
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.broken[model.Key(owner, repo, n)] {
+		return model.PR{}, errors.New("GitHub is down")
+	}
 	if err == nil && g.merged[p.Key()] {
 		p.State = "merged"
 	}
@@ -239,23 +244,26 @@ func (g *closingGitHub) PR(ctx context.Context, owner, repo string, n int) (mode
 }
 
 func TestMergedPullRequestsLeaveTheQueue(t *testing.T) {
-	const merged, open = "acme/ledger#311", "acme/web-app#2214"
-	fake := &closingGitHub{merged: map[string]bool{}, hidden: map[string]bool{merged: true, open: true}}
+	const merged, open, unknown = "acme/ledger#311", "acme/web-app#2214", "acme/payments-api#4127"
+	fake := &closingGitHub{merged: map[string]bool{}, broken: map[string]bool{},
+		hidden: map[string]bool{merged: true, open: true, unknown: true}}
 	eng, home := start(t, func(e *review.Engine, home string) {
 		fake.GitHub = demo.GitHub{Home: home}
 		e.GH = fake
 	})
 	ctx := context.Background()
-	for _, ref := range []string{merged, open} {
+	for _, ref := range []string{merged, open, unknown} {
 		if _, err := eng.Add(ctx, ref); err != nil {
 			t.Fatal(err)
 		}
 	}
 	waitReady(t, eng, merged)
 	waitReady(t, eng, open)
+	waitReady(t, eng, unknown)
 
 	fake.mu.Lock()
 	fake.merged[merged] = true
+	fake.broken[unknown] = true
 	fake.mu.Unlock()
 	if err := eng.Sync(ctx); err != nil {
 		t.Fatal(err)
@@ -269,5 +277,8 @@ func TestMergedPullRequestsLeaveTheQueue(t *testing.T) {
 	}
 	if _, ok := eng.Get(open); !ok {
 		t.Errorf("%s is still open but left the queue", open)
+	}
+	if _, ok := eng.Get(unknown); !ok {
+		t.Errorf("%s left the queue although GitHub could not say whether it is open", unknown)
 	}
 }
