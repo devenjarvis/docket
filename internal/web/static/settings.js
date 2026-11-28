@@ -474,6 +474,15 @@ function policy(S) {
 }
 
 // --- Reviews ------------------------------------------------------------------
+// The colourways in docket.css: id, name, and the two riso drums it is printed with.
+const INKS = [
+  ["black-tomato", "Black and Tomato", "Black · Bright Red"],
+  ["federal-pink", "Federal and Pink", "Federal Blue · Fluorescent Pink"],
+  ["hunter-orange", "Hunter and Orange", "Hunter Green · Fluorescent Orange"],
+  ["plum-sunflower", "Plum and Sunflower", "Plum · Sunflower"],
+  ["teal-yellow", "Teal and Yellow", "Teal · Yellow"],
+  ["blue-orange", "Blue and Orange", "Medium Blue · Orange"],
+];
 const NOTIFY = {
   read: "A pull request is read and waits on me",
   lane: "One of mine becomes ready to merge, or starts to need me",
@@ -483,10 +492,14 @@ const NOTIFY = {
 
 function reviews(S) {
   const st = state.st, c = st.config;
-  const theme = localStorage.getItem("docket-theme") || "auto";
-  const setTheme = (t) => {
-    localStorage.setItem("docket-theme", t);
-    document.documentElement.dataset.theme = t === "auto" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "blueprint" : "whiteprint") : t;
+  let theme = localStorage.getItem("docket-theme") || "auto";
+  if (theme === "whiteprint") theme = "light";
+  if (theme === "blueprint") theme = "dark";
+  const ink = document.documentElement.dataset.ink;
+  const mode = document.documentElement.dataset.theme;
+  const keep = (k, v) => {
+    localStorage.setItem(k, v);
+    window.docketApplyTheme();
     refresh(true);
   };
   const polls = [[60, "1 minute"], [120, "2 minutes"], [300, "5 minutes"], [600, "10 minutes"], [900, "15 minutes"]];
@@ -507,8 +520,14 @@ function reviews(S) {
         h("div.stack", { class: "gap-s" }, st.notifyKinds.map((k) => h("label.check",
           h("input", { type: "checkbox", checked: !off.has(k), onchange: (e) => save({ notifyOff: e.target.checked ? c.notifyOff.filter((x) => x !== k) : [...c.notifyOff, k] }) }),
           NOTIFY[k] || k)))),
-      setting("Appearance", "Auto follows the system.",
-        h("div.row", { class: "gap-u" }, ["auto", "whiteprint", "blueprint"].map((t) => h("button.btn.small" + (theme === t ? ".primary" : ""), { onclick: () => setTheme(t) }, t)))),
+      setting("Light or dark", "Auto follows the system.",
+        h("div.seg", { role: "group", "aria-label": "Light or dark" }, [["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]].map(([t, l]) =>
+          h("button", { "aria-pressed": theme === t ? "true" : "false", onclick: () => keep("docket-theme", t) }, l)))),
+      setting("Colourway", "Docket is printed in two inks. The darker one carries every word; the brighter one only ever marks what is yours to do.",
+        h("div.inks", { role: "group", "aria-label": "Colourway" }, INKS.map(([id, name, drums]) =>
+          h("button.ink-choice", { "aria-pressed": ink === id ? "true" : "false", onclick: () => keep("docket-ink", id) },
+            h("span.swatch", { "data-ink": id, "data-theme": mode, "aria-hidden": "true" }, h("i"), h("i")),
+            h("b", name), h("small", drums))))),
       setting("Keyboard", "",
         h("div.small.text-2", h("span.kbd", "j"), " ", h("span.kbd", "k"), " move between rows · ", h("span.kbd", "Enter"), " opens one · ",
           h("span.kbd", "1"), "–", h("span.kbd", "9"), " choose an option · ", h("span.kbd", "n"), " ", h("span.kbd", "p"), " next and previous sheet · ", h("span.kbd", "s"), " sign-off"))),

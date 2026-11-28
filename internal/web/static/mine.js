@@ -1,7 +1,7 @@
 // One of the user's own pull requests: what blocks it, its checks, its
 // conversation and the controls to move it along. The list is the inbox's.
 
-import { h, get, toast, ago, openExternal } from "./dom.js";
+import { h, get, toast, ago, openExternal, byline } from "./dom.js";
 import { renderConversation, act } from "./conversation.js";
 import { refresh } from "./app.js";
 import { renderTend, heldCards, startTend } from "./tend.js";
@@ -135,15 +135,13 @@ function blockerMoves(S, m, key, b) {
 
 export function renderMine(S) {
   const m = S.mine, p = m.pr, key = p.owner + "/" + p.repo + "#" + p.number;
-  const cell = (label, value, cls) => h("div" + (cls || ""), h("span.label", label), h("span.cell-v", value));
   const [lane, laneCls] = LANE_STAMP[m.lane] || [m.lane, ""];
-  const head = h("div.titleblock",
-    h("a.brand", { href: "#/", title: "Back to the inbox" }, "Docket"),
-    cell("Pull request", `${p.owner}/${p.repo} #${p.number}`),
-    cell("Title", p.title, ".wide.narrow-hide"),
-    cell("Branch", `${p.headRef} → ${p.baseRef}`, ".narrow-hide"),
-    cell("Head", (p.headSha || "").slice(0, 7), ".narrow-hide"),
-    cell("Checked", ago(m.fetchedAt)));
+  const head = byline([
+    ["", `${p.owner}/${p.repo} #${p.number}`, ".mono"],
+    ["", `${p.headRef} → ${p.baseRef}`, ".mono.narrow-hide"],
+    ["head", (p.headSha || "").slice(0, 7), ".mono.narrow-hide"],
+    ["checked", ago(m.fetchedAt)],
+  ]);
   const blockers = (m.blockers || []).length
     ? h("div.scroll-x", h("table.reg", h("tbody", m.blockers.map((b) => h("tr",
       h("td", { class: b.onYou ? "text-red" : "text-2" }, b.text),

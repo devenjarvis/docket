@@ -13,7 +13,7 @@
   "decisions": [
     {
       "id": "d1", "section": "s1",
-      "title": "Halves round up, not to even.",
+      "title": "Halves round up, not to even.", "headline": "Halves round up now.",
       "detail": "The description and docs/settlement.md both say banker's rounding. Math.round rounds 0.5 up, so amounts ending in exactly half a minor unit come out one unit high about half the time.",
       "question": "Should this hold to banker's rounding before it merges?",
       "options": [

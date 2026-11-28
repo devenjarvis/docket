@@ -23,7 +23,8 @@ type Config struct {
 	PollSeconds int `json:"poll_seconds,omitempty"`
 	// Concurrency is how many PRs an agent reads at once.
 	Concurrency int `json:"concurrency,omitempty"`
-	// Theme is whiteprint, blueprint or auto.
+	// Theme is light, dark or auto. The app keeps its own copy in the
+	// webview's storage, with the colourway.
 	Theme string `json:"theme,omitempty"`
 	// ReceiptInReview adds the attention receipt to the posted review body.
 	ReceiptInReview *bool `json:"receipt_in_review,omitempty"`

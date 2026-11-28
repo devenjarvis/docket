@@ -22,7 +22,7 @@
   "decisions": [
     {
       "id": "d1", "section": "s1",
-      "title": "A delivery that times out is sent again, so a slow endpoint receives the same event up to five times.",
+      "title": "A delivery that times out is sent again, so a slow endpoint receives the same event up to five times.", "headline": "Same event. Five times.",
       "detail": "On base, a timeout marked the event failed and stopped. On head, a timeout counts as retryable. The endpoint may have processed the first request; nothing in the later requests tells it they are the same event apart from X-Webhook-Id, which receivers are not told to dedupe on.",
       "question": "Are duplicate deliveries acceptable here?",
       "options": [
@@ -65,7 +65,7 @@
     },
     {
       "id": "d2", "section": "s2",
-      "title": "The migration adds a NOT NULL column with no default and drops a column the old code still writes.",
+      "title": "The migration adds a NOT NULL column with no default and drops a column the old code still writes.", "headline": "Old code, new table.",
       "detail": "Until every worker runs the new code, an old worker's INSERT omits attempts and its UPDATE writes last_status. Both fail once the migration has run. Running the migration after the deploy fails the other way: new code writes attempts before it exists.",
       "question": "How does this repository deploy: can old and new code run against the same database?",
       "options": [
@@ -97,7 +97,7 @@
     },
     {
       "id": "d3", "section": "s1",
-      "title": "A worker holds its slot for up to 40 s while it retries one event.",
+      "title": "A worker holds its slot for up to 40 s while it retries one event.", "headline": "A slot held for 40 seconds.",
       "detail": "pool.ts runs 8 workers and each awaits deliver() before claiming the next event. With retries inside deliver(), one dead endpoint occupies a slot for 40 s instead of 5 s. Eight dead endpoints stall all delivery for 40 s.",
       "question": "Is that capacity cost acceptable for now?",
       "options": [

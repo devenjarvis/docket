@@ -112,6 +112,9 @@ func Validate(b *model.Brief, files []diff.File, rules map[string]bool) []string
 		if strings.TrimSpace(d.Title) == "" || strings.TrimSpace(d.Question) == "" {
 			bad("decision %q needs both a title (the finding, as a fact) and a question (what the reviewer must decide)", d.ID)
 		}
+		if n := len([]rune(strings.TrimSpace(d.Headline))); n > 48 {
+			bad("decision %q: the headline is %d characters; keep it to a few words, at most 48", d.ID, n)
+		}
 		if len(d.Options) < 2 {
 			bad("decision %q needs at least two options", d.ID)
 		}

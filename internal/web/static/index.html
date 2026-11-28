@@ -5,11 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Docket</title>
 <script>
-// Set the theme before first paint so the window never flashes the wrong one.
+// Set the mode and the colourway before first paint so the window never flashes the wrong one.
 (function () {
-  var t = localStorage.getItem("docket-theme") || "auto";
-  if (t === "auto") t = matchMedia("(prefers-color-scheme: dark)").matches ? "blueprint" : "whiteprint";
-  document.documentElement.dataset.theme = t;
+  var r = document.documentElement, inks = ["black-tomato", "federal-pink", "hunter-orange", "plum-sunflower", "teal-yellow", "blue-orange"];
+  var dark = matchMedia("(prefers-color-scheme: dark)");
+  function apply() {
+    var t = "auto", i = "";
+    try { t = localStorage.getItem("docket-theme") || "auto"; i = localStorage.getItem("docket-ink") || ""; } catch (e) { /* no storage */ }
+    if (t === "whiteprint") t = "light";
+    if (t === "blueprint") t = "dark";
+    if (t !== "light" && t !== "dark") t = dark.matches ? "dark" : "light";
+    r.dataset.theme = t;
+    r.dataset.ink = inks.indexOf(i) >= 0 ? i : inks[0];
+  }
+  apply();
+  dark.addEventListener("change", apply);
+  window.docketApplyTheme = apply;
 })();
 </script>
 <link rel="stylesheet" href="/static/docket.css">

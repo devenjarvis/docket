@@ -1,13 +1,14 @@
 // One pull request, as a set of sheets: Brief, Context, one sheet per
 // decision, the full Diff in reading order, and Sign-off.
 
-import { h, get, post, toast, plural, clock, ago, tri, prose, openExternal } from "./dom.js";
+import { h, get, post, toast, plural, clock, ago, tri, prose, openExternal, byline } from "./dom.js";
 import { beforeAfter } from "./viz.js";
 import { renderConversation } from "./conversation.js";
 import { href, go, refresh, itemHref } from "./app.js";
 
 const KIND = { judgment: "Needs you", skim: "Verified, skim", mechanical: "Mechanical, proven" };
-const CLAIM = { proved: ["Proved", ""], contradicted: ["Contradicted", ".contra"], unproven: ["Unproven", ".open"], unstated: ["Unstated", ".faint"] };
+// A claim's status, in a fact-checker's words.
+const CLAIM = { proved: ["True", ""], contradicted: ["False", ".contra"], unproven: ["Can't tell", ".open"], unstated: ["Not said", ".faint"] };
 
 function sheetsOf(v) {
   const b = v.brief;
@@ -112,14 +113,13 @@ function advanceAfter(v, d) {
 export function renderReview(S) {
   const v = S.review, p = v.pr, b = v.brief;
   const list = sheetsOf(v), i = at(S, list);
-  const cell = (label, value, cls) => h("div" + (cls || ""), h("span.label", label), h("span.cell-v", value));
-  const head = h("div.titleblock",
-    h("a.brand", { href: "#/", title: "Back to the queue" }, "Docket"),
-    cell("Pull request", `${p.owner}/${p.repo} #${p.number}`),
-    cell("Title", p.title, ".wide.narrow-hide"),
-    cell("Author", p.author, ".narrow-hide"),
-    cell("Read at", v.readSha ? v.readSha.slice(0, 7) : "not yet", ".narrow-hide"),
-    cell("Sheet", list.length ? `${i + 1} of ${list.length}` : "none"));
+  const head = byline([
+    ["", `${p.owner}/${p.repo} #${p.number}`, ".mono"],
+    ["", p.title, ".title-fact.narrow-hide"],
+    ["by", p.author, ".narrow-hide"],
+    ["read at", v.readSha ? v.readSha.slice(0, 7) : "not yet", ".mono.narrow-hide"],
+    ["sheet", list.length ? `${i + 1} of ${list.length}` : "none"],
+  ]);
 
   // Past two decisions, a decision's tab is its triangle alone, so the index
   // keeps to one row; Sign-off is pinned at the right either way.
@@ -222,7 +222,7 @@ function brief(S, v, list) {
           h("span", h("span.key-sw.fill-mechanical"), `Mechanical, proven: ${by("mechanical")}`))),
 
       h("div.block",
-        h("div.label.ink", "What the pull request claims, and what held up"),
+        h("div.label.ink", "Fact check: what the pull request claims"),
         h("div.scroll-x", h("table.reg", h("tbody", (b.claims || []).map((c) => {
           const [word, cls] = CLAIM[c.status] || [c.status, ""];
           return h("tr",
@@ -417,7 +417,7 @@ function decision(v, sheet) {
   };
   askInput.addEventListener("keydown", (e) => { if (e.key === "Enter") ask(); });
 
-  const comment = chosen && h("textarea.field", { rows: 5, "aria-label": "Comment to post", value: a.comment || chosen.comment || "",
+  const comment = chosen && h("textarea.field", { rows: 5, id: "comment-" + d.id, value: a.comment || chosen.comment || "",
     onchange: (e) => answer(v, d, { comment: e.target.value === chosen.comment ? "" : e.target.value }) });
 
   const fb = (id, label) => h("button.btn.small" + (a.feedback === id ? ".primary" : ""), { onclick: () => answer(v, d, { feedback: id }) }, label);
@@ -429,16 +429,41 @@ function decision(v, sheet) {
     } catch (e) { toast(e.message); }
   };
 
-  return h("div.cols",
-    h("div.main",
-      h("div.row", { class: "one-line" }, tri(sheet.n, !!a.option, true),
-        h("div.block", newStamp(v, d.id) && h("div", h("span.stamp.open", "New since your last look")), h("h1.statement", prose(d.title)), h("p.lede", prose(d.detail)))),
-      beforeAfter(d.beforeAfter, (f) => outURL(v, f)),
-      (v.hotDiffs[d.id] || []).length ? h("div.block", h("div.label.ink", "The lines that matter"), (v.hotDiffs[d.id] || []).map(diffBlock),
-        h("div.small.muted", "A red rule in the margin marks them. ", h("a", { href: href(v.key, "diff") + "/" + d.section }, "See the whole section"))) : null,
-      evidence.length ? h("div.block", h("div.label.ink", "Evidence"), evidence) : null),
+  // The kicker says why this is a question at all.
+  const claims = v.brief.claims || [];
+  const mine = claims.filter((c) => c.decision === d.id);
+  const why = mine.some((c) => c.status === "contradicted") ? "the description says otherwise"
+    : mine.some((c) => c.status === "unproven") ? "the description claims it, nothing proved it"
+    : mine.some((c) => c.status === "unstated") ? "the pull request doesn't mention it"
+    : rule ? `your rule ${rule.id} raised it` : "only you can answer it";
+  const count = v.brief.decisions.length;
+  const next = nextOpen(v, d.id);
+  const where = d.anchor && d.anchor.path ? `${d.anchor.path.split("/").pop()}:${d.anchor.line}` : "";
 
-    h("div.side.wide",
+  return h("div.layout-spread",
+    h("article.feature",
+      h("div.kicker", tri(sheet.n, !!a.option), h("span.label.ink", `Decision ${sheet.n} of ${count} · ${why}`), newStamp(v, d.id)),
+      d.headline ? [h("h1.headline", d.headline), h("p.statement", prose(d.title))] : h("h1.statement", prose(d.title)),
+      h("p.lede", prose(d.detail)),
+      beforeAfter(d.beforeAfter, (f) => outURL(v, f)),
+      evidence.length ? h("div.block", h("div.label.ink", "What the agent found"), evidence) : null,
+      (v.hotDiffs[d.id] || []).length ? h("div.block", h("div.label.ink", "The lines that matter"), (v.hotDiffs[d.id] || []).map(diffBlock),
+        h("div.small.muted", "A bar in the margin marks them. ", h("a", { href: href(v.key, "diff") + "/" + d.section }, "See the whole section"))) : null),
+
+    h("aside.factcheck", { "aria-label": "Fact check" },
+      h("h2.h2", "Fact check"),
+      h("p.small.muted", "What the pull request says about itself, checked by the agent."),
+      claims.length ? [...mine, ...claims.filter((c) => c.decision !== d.id)].map((c) => {
+        const [word, cls] = CLAIM[c.status] || [c.status, ""];
+        const n = c.decision && c.decision !== d.id ? v.brief.decisions.findIndex((x) => x.id === c.decision) + 1 : 0;
+        return h("div.claim" + (c.decision === d.id ? ".here" : ""),
+          h("span.stamp" + cls, word),
+          h("div.small", prose(c.text)),
+          c.decision === d.id && h("div.small.muted", "This is the claim in question."),
+          n > 0 && h("a.small", { href: href(v.key, "d", c.decision), class: "tri-link" }, tri(n, !!(v.answers[c.decision] || {}).option), `decision ${n}`));
+      }) : h("p.small.muted", "The description makes no checkable claims.")),
+
+    h("div.yours-col",
       h("div.yours", { class: "sticky" },
         h("div.label", "Your call"),
         h("div", { class: "question" }, prose(d.question)),
@@ -448,9 +473,9 @@ function decision(v, sheet) {
             h("span.key", i + 1), h("span", h("b", o.label), h("small", prose(o.detail)),
               h("span.stamp" + (o.effect === "blocking" ? ".red" : o.effect === "ask" ? ".open" : ""), o.effect === "blocking" ? "Blocks the merge" : o.effect === "ask" ? "Stays open" : "Accepts it"))))),
         chosen && h("div.block",
-          h("div.label", chosen.effect === "accept" ? "Note to post (optional)" : "Comment to post"),
+          h("label.label", { for: "comment-" + d.id }, chosen.effect === "accept" ? "A note to post, if you want one" : where ? `Comment on ${where}` : "Comment for the review"),
           comment,
-          h("div.small.muted", d.anchor && d.anchor.path ? ["Attaches to ", h("span.mono", `${d.anchor.path}:${d.anchor.line}`), ". Nothing is posted until you sign."] : "Goes in the review body. Nothing is posted until you sign.")),
+          h("div.small.muted", (chosen.comment ? "Drafted by the agent. It goes out under your name, so make it yours. " : "") + "Nothing posts until you sign.")),
         h("div.block.rule-top", { class: "gap-s" },
           h("div.label", "Ask before you decide"),
           asks.map((q) => h("div.block", { class: "gap-s" }, h("div.small", { class: "strong" }, q.question),
@@ -463,6 +488,8 @@ function decision(v, sheet) {
           h("div.small", "No rule of yours raised this. Want to be stopped here again?"),
           h("div.small", { class: "strong" }, d.proposedRule.text),
           h("div", h("button.btn.small", { onclick: makeRule }, "Make it a rule, on trial"))),
+        a.option && h("a.btn.primary", { href: next ? href(v.key, "d", next.id) : href(v.key, "signoff") },
+          next ? `Next: decision ${v.brief.decisions.indexOf(next) + 1} →` : "On to sign-off →"),
         h("div.small.muted", h("span.kbd", "1"), " to ", h("span.kbd", String(d.options.length)), " choose"))));
 }
 
