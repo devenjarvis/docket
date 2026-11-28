@@ -1,0 +1,20 @@
+# Docket's behavior specs, tested with the Go SDK (github.com/devenjarvis/brine/packages/brine).
+specs = ["specs/**/*.feature"]
+require_seal = true
+require_red = true
+require_assertions = true
+require_values_read = true
+require_typed_outcomes = true
+
+# First match wins: narrower globs first.
+[[layer]]
+name = "api"
+tests = ["internal/server/spec_*_test.go"]
+
+[[layer]]
+name = "unit"
+tests = ["internal/**/spec_*_test.go"]
+
+[results]
+# `brine run -- go test ./...` gives each run a fresh directory; only the latest run's records count.
+require_run = true

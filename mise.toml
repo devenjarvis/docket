@@ -23,6 +23,22 @@ run = "go run . demo"
 description = "Run the tests and vet the desktop build"
 run = ["go test ./...", "go vet -tags desktop ./..."]
 
+[tasks."spec:gen"]
+description = "Regenerate specs/*.gen.go from the Brine specs (commit them with the spec)"
+run = ["brine fmt", "brine lint", "brine gen go"]
+
+[tasks."spec:test"]
+description = "Run every test through brine run, recording results for the Brine gate"
+run = "brine run -- go test ./..."
+
+[tasks."spec:gate"]
+description = "Check every spec example has a passing, sealed, current test"
+run = "brine gate"
+
+[tasks.verify]
+description = "Everything CI would check: specs formatted and generated, tests through brine, the gate, vet"
+run = ["brine fmt --check", "brine lint", "brine gen go --check", "brine run -- go test ./...", "brine gate", "go vet ./...", "go vet -tags desktop ./..."]
+
 [tasks.vet]
 description = "Vet the code"
 run = "go vet ./..."

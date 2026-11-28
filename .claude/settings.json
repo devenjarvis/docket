@@ -1,0 +1,6 @@
+{
+  "extraKnownMarketplaces": {
+    "brine": { "source": { "source": "github", "repo": "devenjarvis/brine" } }
+  },
+  "enabledPlugins": { "brine@brine": true }
+}
