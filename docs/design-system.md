@@ -89,6 +89,8 @@ Each has a class in `docket.css` and a rendered example in the style guide.
 **Data**
 - **Attention bar** (`.attn`): where the changed lines go. Solid red: needs you. Hatched ink: verified. Fine ruling: mechanical.
 - **Register** (`table.reg`): every table. `tr.go` is a whole-row link. Stacked groups of one table use a fixed layout (`.queue`, `.lanes`) so their columns line up.
+- **Inbox** (`table.reg.inbox`): the one register for reviews and the user's own pull requests, in bands (`tr.bandrow`). Each row leads with its action as a red button (`.move-btn`), because the action is the user's. Under the title, `.why` says why the row sits where it is, on a dashed pencil rule: it is Docket's reasoning, not a fact from the pull request.
+- **Cut line** (`tr.cut` with `.dim`): the time the user said they have, drawn as a dimension line across the register. Rows past it (`tr.past`) recede onto the sunk ground.
 - **Tally** (`.tally`): counts at the head of an inbox; `.big.red` when the count is yours.
 - **Path** (`.path`): the path a change sits on; `.step.changed` is where it changes.
 - **Before and after** (`.ba`): see below.

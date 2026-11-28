@@ -77,6 +77,8 @@ type Engine struct {
 	mineErr  string
 	tending  map[string]bool
 	runCtx   context.Context
+	// snoozes is what the user put aside, by key; nil until first loaded.
+	snoozes map[string]Snooze
 }
 
 // New loads saved reviews from home.
@@ -388,7 +390,7 @@ func (e *Engine) upsert(pr model.PR) {
 	key := pr.Key()
 	r := e.reviews[key]
 	if r == nil {
-		r = &model.Review{PR: pr, Status: "queued"}
+		r = &model.Review{PR: pr, Status: "queued", FoundAt: time.Now()}
 		fix(r)
 		e.reviews[key] = r
 		e.save(r)
@@ -496,6 +498,12 @@ type Summary struct {
 	Pushed     bool   `json:"pushed"`
 	Slice      int    `json:"slice"`
 	Lane       string `json:"lane"`
+	// Reread is true when the brief is a read after the author pushed, with
+	// the reviewer's earlier answers carried over.
+	Reread bool `json:"reread"`
+	// Found is when the author's wait on the reviewer began, as near as
+	// Docket knows: when it first saw the request.
+	Found time.Time `json:"found"`
 }
 
 // Status is everything the queue screen shows.
@@ -511,6 +519,15 @@ func summarize(r *model.Review) Summary {
 	s := Summary{Key: r.PR.Key(), PR: r.PR, Status: r.Status, Error: r.Error, Activity: r.Activity, Slice: len(r.Slice)}
 	s.TotalLines = r.PR.Additions + r.PR.Deletions
 	s.Pushed = r.ReadSHA != "" && r.ReadSHA != r.PR.HeadSHA
+	s.Found = r.FoundAt
+	if s.Found.IsZero() {
+		// Reviews kept from before Docket recorded it: the read is the
+		// nearest time it has.
+		s.Found = r.ReadAt
+	}
+	if s.Found.IsZero() {
+		s.Found = r.PR.UpdatedAt
+	}
 	if b := r.Brief; b != nil {
 		s.Decisions = len(b.Decisions)
 		for _, d := range b.Decisions {
@@ -537,6 +554,7 @@ func summarize(r *model.Review) Summary {
 			}
 		}
 		s.HasContext = b.Context != nil
+		s.Reread = b.Since != nil
 	}
 	switch {
 	case r.Status == "posted":

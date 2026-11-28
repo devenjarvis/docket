@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unified inbox · Docket mockup</title>
+<script>
+// Follow the system, or the viewer's own light/dark choice, in Whiteprint terms.
+(function () {
+  var r = document.documentElement;
+  function pick() {
+    var v = r.getAttribute("data-viewer-theme") || r.dataset.theme;
+    if (v === "blueprint" || v === "whiteprint") return;
+    var dark = v === "dark" || (v !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+    r.dataset.theme = dark ? "blueprint" : "whiteprint";
+  }
+  pick();
+  new MutationObserver(pick).observe(r, { attributes: true, attributeFilter: ["data-theme"] });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () { delete r.dataset.theme; pick(); });
+})();
+</script>
+<link rel="stylesheet" href="../../internal/web/static/docket.css">
+<style>
+/* Mockup only. Built as these classes in docket.css:
+   .move-btn  the row's action: red, because it is yours to do
+   .why       why the row sits where it does: Docket's inference, so pencil
+   .cut       the time budget, drawn as a dimension line across the register
+   .band      a group in the one list: Quick, Needs a closer look, Skim       */
+.plate { display: flex; flex-wrap: wrap; gap: var(--u) calc(var(--u) * 2); align-items: baseline; margin: calc(var(--u) * 6) 0 calc(var(--u) * 1.5); }
+.plate:first-of-type { margin-top: calc(var(--u) * 3); }
+.plate b { font: 20px/1.2 var(--lettering); color: var(--ink); letter-spacing: 0.02em; font-weight: 400; }
+.plate span { color: var(--text-2); max-width: 70ch; }
+.stamp.sm { padding: 1px 5px; font-size: 11px; vertical-align: 1px; }
+
+table.reg.inbox { table-layout: fixed; min-width: 780px; }
+table.reg.inbox th:nth-child(1) { width: 148px; }
+table.reg.inbox th:nth-child(3) { width: 176px; }
+table.reg.inbox th:nth-child(4) { width: 76px; }
+table.reg.inbox th:nth-child(5) { width: 92px; }
+table.reg.inbox tbody tr.bandrow td { padding: calc(var(--u) * 2.5) calc(var(--u) * 1.5) var(--u); border-bottom: var(--line) solid var(--ink); background: var(--sheet); cursor: default; }
+table.reg.inbox tbody:first-of-type tr.bandrow td { padding-top: var(--u); }
+.bandrow .h2 { display: inline; margin-right: calc(var(--u) * 1.5); }
+.move-btn { width: 100%; justify-content: flex-start; }
+.why { margin-top: calc(var(--u) * 0.75); padding-left: var(--u); border-left: 1px dashed var(--pencil); color: var(--text-2); font-size: 13px; }
+.unb b { display: block; font-weight: 700; }
+.unb small { color: var(--text-3); font-size: 12px; }
+tr.past td { background: var(--sunk); }
+tr.past .item-title, tr.past .unb b { color: var(--text-2); font-weight: 400; }
+tr.past .move-btn { border: var(--line) solid var(--text-3); color: var(--text-2); }
+tr.cut td { padding: 0 !important; border-bottom: 0 !important; background: var(--sheet) !important; cursor: default; }
+.dim { position: relative; display: flex; align-items: center; justify-content: center; height: 34px; margin: 0 calc(var(--u) * 1.5); }
+.dim::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: var(--line) solid var(--ink); }
+.dim::after { content: ""; position: absolute; left: 0; right: 0; top: calc(50% - 7px); height: 14px; border-left: var(--line) solid var(--ink); border-right: var(--line) solid var(--ink); }
+.dim span { position: relative; z-index: 1; background: var(--sheet); padding: 0 var(--u); font: 13px/1 var(--mono); color: var(--ink); }
+tr.expand td { background: var(--sheet); padding-top: 0; }
+tr.expand .held { margin: 0; }
+tr.opened td { border-bottom: 0; }
+.new { color: var(--red); font: 700 11px/1 var(--mono); margin-left: 6px; }
+.notmine summary .h2 { display: inline; }
+table.reg.side td { padding: var(--u) calc(var(--u) * 1.5); }
+ol.rules { margin: 0; padding-left: calc(var(--u) * 3); display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); max-width: 76ch; }
+ol.rules li::marker { font: 700 14px var(--mono); color: var(--ink); }
+.progress { display: flex; height: 12px; border: var(--line) solid var(--ink); }
+.progress i { flex: 1; border-right: 1px solid var(--sheet); background: var(--sunk); }
+.progress i.d { background: var(--ink); }
+.progress i.n { background: var(--red); }
+.progress i:last-child { border-right: 0; }
+@media (max-width: 720px) {
+  .dim span { font-size: 12px; }
+  /* on a phone each row stacks: the action, the pull request, then who and how long */
+  table.reg.inbox { min-width: 0; table-layout: auto; }
+  table.reg.inbox thead { display: none; }
+  table.reg.inbox, table.reg.inbox tbody, table.reg.inbox tr, table.reg.inbox td { display: block; }
+  table.reg.inbox tr.go { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--u) calc(var(--u) * 1.5); padding: calc(var(--u) * 1.5) 0; border-bottom: 1px solid var(--hair); }
+  table.reg.inbox tr.go td { padding: 0; border: 0; }
+  table.reg.inbox tr.go td:nth-child(1), table.reg.inbox tr.go td:nth-child(2) { grid-column: 1 / -1; }
+  table.reg.inbox tr.go .move-btn { width: auto; }
+  table.reg.inbox tr.expand td:first-child { display: none; }
+  table.reg.inbox tr.expand td { padding: 0 0 var(--u); }
+  table.reg.inbox tr.bandrow td { padding-left: 0; padding-right: 0; }
+  .dim { margin: 0; }
+  table.reg.side.lanes { min-width: 0; table-layout: auto; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<div class="sheet mb-l">
+  <div class="titleblock bare">
+    <a class="brand" href="#inbox">Docket</a>
+    <div><span class="label">Reviewer</span><span class="cell-v">devenjarvis</span></div>
+    <div><span class="label">Agent</span><span class="cell-v">Claude Code</span></div>
+    <div class="wide"><span class="label">GitHub</span><span class="cell-v v-mono">checked 40 s ago</span></div>
+    <div><span class="label">Rulebook</span><span class="cell-v">14 rules</span></div>
+    <div><span class="label">Settings</span><span class="cell-v">metrics, agent, policy</span></div>
+  </div>
+</div>
+
+<div class="banner">Mockup with sample pull requests. The inbox, what comes after you post a review, and how the list is sorted.
+  <a href="#inbox">Inbox</a> · <a href="#next">Next up</a> · <a href="#sort">How it sorts</a></div>
+
+<!-- ============================ A. the inbox ============================ -->
+<div class="plate" id="inbox"><b>A · One inbox</b>
+  <span>Review requests and your own pull requests in one list. Each row has one button, the thing to do, and a line saying why it’s where it is. Say how much time you have and a line shows where it runs out.</span></div>
+
+<div class="sheet">
+  <nav class="sheets" aria-label="Inbox">
+    <a href="#inbox" aria-current="page">Inbox · <span id="tab-n">10</span></a>
+    <a href="#notmine">Waiting on others · 6</a>
+    <a href="#inbox">Reviewed · 3</a>
+  </nav>
+  <div class="body">
+    <div class="tally">
+      <div><div class="label">To do</div><div class="big red" id="t-moves">10</div><div class="small muted">4 reviews, 6 of yours</div></div>
+      <div><div class="label">People waiting on you</div><div class="big">4</div><div class="small muted">ana, ben, chen, ellis</div></div>
+      <div><div class="label">Yours that could merge today</div><div class="big">3</div><div class="small muted">after the quick ones</div></div>
+      <div><div class="label">All of it</div><div class="big" id="t-all">51 min</div><div class="small muted" id="t-fit">27 min fits in 30</div></div>
+    </div>
+
+    <div class="row spread mid">
+      <div class="row mid gap-m">
+        <span class="label ink">I have</span>
+        <div class="seg" role="group" aria-label="Time budget" id="budget">
+          <button data-b="15">15 min</button><button data-b="30" aria-pressed="true">30 min</button><button data-b="60">1 h</button><button data-b="0">All</button>
+        </div>
+      </div>
+      <div class="row mid gap-u">
+        <button class="btn primary" id="start">Start: Merge #412</button>
+      </div>
+    </div>
+
+    <div class="scroll-x">
+      <table class="reg inbox" id="reg">
+        <thead><tr><th>Do</th><th>Pull request</th><th>Who’s waiting</th><th class="r">Time</th><th class="r">Waiting</th></tr></thead>
+      </table>
+    </div>
+
+    <details class="notmine block rule-top" id="notmine">
+      <summary><span class="h2">Waiting on others · 6</span> <span class="small muted">Your agent, CI or a reviewer has these. They come back up when they need you.</span></summary>
+      <div class="scroll-x"><table class="reg side lanes"><tbody id="others"></tbody></table></div>
+    </details>
+
+    <div class="row spread mid">
+      <span class="small muted"><span class="kbd">j</span> <span class="kbd">k</span> move between rows, <span class="kbd">Enter</span> opens one, <span class="kbd">s</span> snoozes it until something changes.</span>
+      <button class="btn quiet small">Check now</button>
+    </div>
+  </div>
+</div>
+
+<!-- B. next up -->
+<div class="plate" id="next"><b>B · Next up</b>
+  <span>After you post a review, you don’t land back on the list. The sign-off sheet shows what’s next, whether it fits in the time you have, and what happened while you were reading.</span></div>
+
+<div class="sheet">
+  <div class="titleblock">
+    <a class="brand" href="#inbox">Docket</a>
+    <div><span class="label">Pull request</span><span class="cell-v">harbor/api #391</span></div>
+    <div class="wide narrow-hide"><span class="label">Title</span><span class="cell-v">Idempotency keys for payment retries</span></div>
+    <div class="narrow-hide"><span class="label">Author</span><span class="cell-v">ben</span></div>
+    <div class="narrow-hide"><span class="label">Read at</span><span class="cell-v">a41f9c2</span></div>
+    <div><span class="label">Sheet</span><span class="cell-v">6 of 6</span></div>
+  </div>
+  <nav class="sheets" aria-label="Sheets">
+    <a href="#next">Brief</a><a href="#next">Decision 1</a><a href="#next">Decision 2</a><a href="#next">Decision 3</a><a href="#next">Diff</a><a href="#next" aria-current="page">Sign-off</a>
+  </nav>
+  <div class="body">
+    <div class="cols">
+      <div class="main">
+        <div class="row mid gap-m"><h1 class="title m0">Review posted</h1><span class="stamp solid">Approved</span></div>
+        <p class="lede">Your review is on harbor/api #391 with 3 line comments, attached to a41f9c2. Ben isn’t waiting on you any more, and it can merge.</p>
+
+        <div class="block rule-top">
+          <div class="row spread base"><h2 class="h2">So far</h2><span class="small muted num">6 of 10 · 27 of 30 min</span></div>
+          <div class="progress" aria-hidden="true"><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="n"></i><i></i><i></i><i></i></div>
+          <div class="scroll-x"><table class="reg side"><tbody>
+            <tr><td class="fit"><span class="stamp sm solid">Done</span></td><td>Merged harbor/api #412</td><td class="r num small">1 min</td></tr>
+            <tr><td class="fit"><span class="stamp sm solid">Done</span></td><td>Pushed the rename ben asked for on harbor/api #415</td><td class="r num small">1 min</td></tr>
+            <tr><td class="fit"><span class="stamp sm solid">Done</span></td><td>Re-reviewed harbor/web #388: approved</td><td class="r num small">5 min</td></tr>
+            <tr><td class="fit"><span class="stamp sm solid">Done</span></td><td>Replied to chen on harbor/infra #97</td><td class="r num small">2 min</td></tr>
+            <tr><td class="fit"><span class="stamp sm solid">Done</span></td><td>Asked ellis to review harbor/web #402</td><td class="r num small">1 min</td></tr>
+            <tr><td class="fit"><span class="stamp sm solid">Done</span></td><td>Reviewed harbor/api #391: approved</td><td class="r num small">17 min</td></tr>
+          </tbody></table></div>
+        </div>
+
+        <div class="block rule-top">
+          <h2 class="h2">While you were reviewing</h2>
+          <div class="entry on-you"><b>ana approved harbor/api #415.</b> <span class="text-2">It’s ready to merge, so it’s at the top of Quick.</span></div>
+          <div class="entry"><b>The agent fixed the failing test on harbor/web #403.</b> <span class="text-2">Checks are running again. Nothing for you yet.</span></div>
+        </div>
+      </div>
+
+      <div class="side wide">
+        <div class="yours sticky">
+          <span class="label">Next up</span>
+          <div class="row mid gap-u"><span class="stamp sm solid">Yours</span><span class="mono small muted">harbor/api #415</span><span class="new">NEW</span></div>
+          <div class="question">Merge “Move rate limits into config”</div>
+          <p class="small text-2">ana's approval just came in. Checks are green. About 1 minute, and 3 min of your 30 are left.</p>
+          <div class="row mid gap-u">
+            <button class="btn red">Merge it</button>
+            <button class="btn">Open it first</button>
+          </div>
+          <div class="rule-top small text-2">After that: <b>fix the conflicts on harbor/web #405</b>, 9 min. That’s 7 min more than you set aside.</div>
+          <div class="row mid gap-u">
+            <button class="btn quiet small">Stop here</button>
+            <button class="btn quiet small">Skip to the easy reviews</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ C. how it sorts ============================ -->
+<div class="plate" id="sort"><b>C · How it sorts</b>
+  <span>A few rules you can read, not a score you have to trust. Every row says which one put it there.</span></div>
+
+<div class="sheet">
+  <div class="body">
+    <div class="block">
+      <p class="statement">Finish what’s nearly done. Then unblock people. Then read.</p>
+      <p class="lede">A pull request of yours that’s green but not merged, or a review you’ve answered but not posted, takes a minute to finish, and someone waits until you do. Those come first. Then the reviews only you can unblock. Then the reading nobody is waiting for.</p>
+    </div>
+
+    <div class="grid2">
+      <div class="block">
+        <h2 class="h2">The rules, in order</h2>
+        <ol class="rules">
+          <li><b>Group by how long it takes.</b> <span class="text-2"><b>Quick</b>: a minute or two, and something merges or someone stops waiting. Merge, check a fix the agent held, re-review what an author changed for you, reply, nudge. <b>Needs a closer look</b>: a review with questions, or a conflict on yours. <b>Skim and approve</b>: nothing to decide.</span></li>
+          <li><b>Then who’s waiting.</b> <span class="text-2">First what merges when you act (it’s yours and ready, or your answers are in). Then a review by someone who’s reviewing one of yours. Then anyone who has waited more than a day.</span></li>
+          <li><b>Then the shortest,</b> <span class="text-2">by the agent’s estimate of your time.</span></li>
+          <li><b>Then the oldest request.</b></li>
+        </ol>
+      </div>
+      <div class="block">
+        <h2 class="h2">What moves a row</h2>
+        <ol class="rules">
+          <li><b>Up to Quick:</b> <span class="text-2">an author pushes and your answers still apply (you only look at what changed); someone approves yours and the checks pass; nobody has touched a review request on yours for two days (ping them, or ask someone else).</span></li>
+          <li><b>Over to Waiting on others:</b> <span class="text-2">your agent is reading or fixing it; checks are running; a reviewer hasn’t answered yet; you snoozed it.</span></li>
+          <li><b>Not while you’re looking.</b> <span class="text-2">New rows are marked, and the order settles when you come back to the list.</span></li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="block rule-top">
+      <h2 class="h2">What it uses</h2>
+      <div class="scroll-x"><table class="reg">
+        <thead><tr><th>Signal</th><th>From</th><th>Used for</th></tr></thead>
+        <tbody>
+          <tr><td>Decisions, open and answered; minutes; lines that need you</td><td class="text-2">the brief</td><td class="text-2">Group, time</td></tr>
+          <tr><td>What blocks it and who has to act; fixes the agent held</td><td class="text-2">your pull requests, your agent</td><td class="text-2">Which group, and the button</td></tr>
+          <tr><td>Required reviewers, approvals so far, CODEOWNERS</td><td class="text-2">GitHub, owners</td><td class="text-2">“merges when you act”</td></tr>
+          <tr><td>Since you read it: what changed, which decisions it answers</td><td class="text-2">the re-read</td><td class="text-2">Re-review in Quick</td></tr>
+          <tr><td>When your review was requested <span class="stamp sm faint">new data</span></td><td class="text-2">the pull request's timeline</td><td class="text-2">Waiting, nudges</td></tr>
+          <tr><td>Who is reviewing yours, and how many reviews they have open <span class="stamp sm faint">new data</span></td><td class="text-2">GitHub search</td><td class="text-2">Reciprocity, whom to nudge</td></tr>
+        </tbody>
+      </table></div>
+      <p class="small muted">Left out on purpose: who the author is, labels like “urgent”, and how many lines changed. People sort by those when they have nothing better. Docket knows how long each one takes and who’s waiting.</p>
+    </div>
+
+    <div class="block rule-top">
+      <h2 class="h2">Still open</h2>
+      <ol class="rules">
+        <li><b>Your fixes or their reviews?</b> <span class="text-2">A conflict on yours sits below a review someone is blocked on, since your agent can often start on yours. Flipping it gets yours merged sooner.</span></li>
+        <li><b>How much time by default.</b> <span class="text-2">30 minutes, then whatever you picked last.</span></li>
+        <li><b>Notifications.</b> <span class="text-2">Only a new row in Quick notifies you, so a ping always means a minute or two of work.</span></li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+{
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const BANDS = [
+    ["finish", "Quick", "A minute or two each. Clearing these gets things merged."],
+    ["decide", "Needs a closer look", "Reviews with questions for you, and fixes only you can make."],
+    ["read", "Skim and approve", "Nothing to decide, and nobody is blocked on these."],
+  ];
+  // m: minutes; mine: one of yours; tris: [decisions, answered]
+  const ROWS = [
+    { band: "finish", move: "Merge", ref: "harbor/api #412", mine: true, title: "Retry webhook deliveries with backoff",
+      why: "Approved, and every check passes.", unb: "Nobody", unbs: "just merge it", m: 1, wait: "3 h",
+      expand: "merge" },
+    { band: "finish", move: "Check fix", ref: "harbor/api #415", mine: true, title: "Move rate limits into config",
+      why: "Your agent made the rename ben asked for. It waits for your OK because it touches config/defaults.yaml.", unb: "ben's re-review", unbs: "he asked 2 h ago", m: 1, wait: "2 h",
+      expand: "held", open: true },
+    { band: "finish", move: "Re-review", ref: "harbor/web #388", author: "ana", title: "Paginate the audit log", tris: [2, 2],
+      why: "ana pushed changes and your answers still apply. 14 lines changed. ana is reviewing your #415.", unb: "ana", unbs: "waiting 1 d", m: 4, wait: "1 d" },
+    { band: "finish", move: "Reply", ref: "harbor/infra #97", mine: true, title: "Pin the terraform provider to 5.x",
+      why: "chen asked why 5.x and not 6.x. Your agent left this one for you.", unb: "chen", unbs: "asked 5 h ago", m: 2, wait: "5 h" },
+    { band: "finish", move: "Nudge", ref: "harbor/web #402", mine: true, title: "Dark mode for the settings page",
+      why: "Nothing has happened on it for 3 days. dmitri has 6 reviews open; ellis also owns web/settings/ and has 1.", unb: "Your PR", unbs: "no review in 3 d", m: 1, wait: "3 d" },
+    { band: "decide", move: "Review", ref: "harbor/api #391", author: "ben", title: "Idempotency keys for payment retries", tris: [3, 0],
+      why: "Three questions for you. Yours is the last approval it needs. ben has waited 2 days.", unb: "ben", unbs: "1 of 2 approvals", m: 18, wait: "2 d" },
+    { band: "decide", move: "Fix conflicts", ref: "harbor/web #405", mine: true, title: "Upgrade the router to v7",
+      why: "It conflicts with main in 3 files. Your agent has a fix ready, but conflicts always wait for you.", unb: "Your PR", unbs: "approved, then main moved", m: 9, wait: "6 h" },
+    { band: "decide", move: "Review", ref: "harbor/web #399", author: "ellis", title: "Debounce the search input", tris: [1, 0],
+      why: "One question for you. Nobody else is reviewing it.", unb: "ellis", unbs: "first review", m: 6, wait: "5 h" },
+    { band: "read", move: "Approve", ref: "harbor/infra #101", author: "renovate", title: "Bump node to 22.11",
+      why: "Every claim checked out. Spot-check one change and approve.", unb: "renovate", unbs: "bot", m: 2, wait: "1 d" },
+    { band: "read", move: "Read", ref: "harbor/api #393", author: "chen", title: "Add request ids to the logs",
+      why: "No questions, but the log format changes and a person should read it.", unb: "chen", unbs: "you are optional", m: 7, wait: "8 h" },
+  ];
+  const OTHERS = [
+    ["Reading", "harbor/api #417", "Cache the plan lookups", "Your agent is running the tests.", "live"],
+    ["Agent fixing", "harbor/web #403", "Inline the form errors", "Pushed a fix for the failing test. Checks are running.", "yours"],
+    ["Checks", "harbor/infra #99", "Split the staging VPC", "4 of 7 done, about 6 min left.", "yours"],
+    ["Waiting", "harbor/api #410", "Drop the v1 export endpoint", "Asked chen 4 hours ago.", "yours"],
+    ["Waiting", "harbor/web #408", "Keyboard shortcuts sheet", "Asked ana yesterday.", "yours"],
+    ["Snoozed", "harbor/api #386", "Rewrite the billing cron", "Until the author pushes. You asked for a design doc first.", ""],
+  ];
+  const expandHTML = {
+    merge: `<div class="row mid gap-u"><span>Squash and merge <span class="mono">retry-backoff</span> into <span class="mono">main</span>?</span>
+      <button class="btn red small">Confirm merge</button><button class="btn quiet small" data-close>Cancel</button>
+      <span class="small muted">GitHub deletes the branch after.</span></div>`,
+    held: `<div class="held"><div class="row spread base"><span class="label text-red">Waiting for your OK</span><span class="small muted">Changes to config defaults always wait for you.</span></div>
+      <div class="diff patch mt"><div class="lines">
+        <div class="ln"><span class="tx">@@ config/defaults.yaml</span></div>
+        <div class="ln del"><span class="tx">-  limitCfg:</span></div>
+        <div class="ln add"><span class="tx">+  rateLimits:</span></div>
+        <div class="ln"><span class="tx">     perMinute: 600</span></div></div></div>
+      <div class="row mid gap-u mt"><button class="btn red small">Push it</button><button class="btn small">Send back with a note</button>
+      <span class="small muted">ben asked: “call it rateLimits, like the docs”.</span></div></div>`,
+  };
+  let budget = 30;
+  const opened = new Set(ROWS.filter((r) => r.open).map((r) => r.ref));
+
+  const tris = (r) => {
+    if (!r.tris) return "";
+    let s = "";
+    for (let i = 1; i <= r.tris[0]; i++) s += `<span class="tri${i <= r.tris[1] ? " done" : ""}"><span>${i}</span></span>`;
+    return `<span class="row gap-s" style="display:inline-flex;vertical-align:middle;margin-left:6px">${s}</span>`;
+  };
+  const rowHTML = (r, past) => `<tr class="go${past ? " past" : ""}${opened.has(r.ref) ? " opened" : ""}" tabindex="0">
+    <td><button class="btn red small move-btn" data-ref="${esc(r.ref)}">${esc(r.move)}</button></td>
+    <td><div class="mono small muted">${esc(r.ref)} · <span class="stamp sm${r.mine ? " solid" : ""}">${r.mine ? "Yours" : "Review"}</span>${r.author ? " " + esc(r.author) : ""}${tris(r)}</div>
+      <div class="item-title">${esc(r.title)}</div><div class="why">${esc(r.why)}</div></td>
+    <td class="unb"><b>${esc(r.unb)}</b><small>${esc(r.unbs)}</small></td>
+    <td class="r num">${r.m} min</td><td class="r num small muted">${esc(r.wait)}</td></tr>` +
+    (r.expand && opened.has(r.ref) ? `<tr class="expand"><td></td><td colspan="4">${expandHTML[r.expand]}</td></tr>` : "");
+
+  function render() {
+    let sum = 0, cutDone = false, html = "";
+    const fit = ROWS.reduce((a, r) => (a.s + r.m <= (budget || 1e9) && !a.stop ? { s: a.s + r.m, stop: false } : { s: a.s, stop: true }), { s: 0, stop: false }).s;
+    for (const [band, title, sub] of BANDS) {
+      const list = ROWS.filter((r) => r.band === band);
+      html += `<tbody><tr class="bandrow"><td colspan="5"><h2 class="h2">${title} · ${list.length}</h2><span class="small muted">${sub}</span></td></tr>`;
+      for (const r of list) {
+        if (budget && !cutDone && sum + r.m > budget) {
+          html += `<tr class="cut"><td colspan="5"><div class="dim"><span>Your ${budget} minutes end here</span></div></td></tr>`;
+          cutDone = true;
+        }
+        sum += r.m;
+        html += rowHTML(r, cutDone);
+      }
+      html += `</tbody>`;
+    }
+    const reg = document.getElementById("reg");
+    reg.querySelectorAll("tbody").forEach((t) => t.remove());
+    reg.insertAdjacentHTML("beforeend", html);
+    document.getElementById("t-fit").textContent = budget ? `${fit} min fits in ${budget}` : "no budget set";
+  }
+
+  document.getElementById("budget").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    budget = +b.dataset.b;
+    for (const x of e.currentTarget.children) x.setAttribute("aria-pressed", x === b ? "true" : "false");
+    render();
+  });
+  document.getElementById("reg").addEventListener("click", (e) => {
+    const close = e.target.closest("[data-close]");
+    const btn = e.target.closest(".move-btn");
+    if (close) { opened.clear(); render(); return; }
+    if (!btn) return;
+    const r = ROWS.find((x) => x.ref === btn.dataset.ref);
+    if (r && r.expand) { opened.has(r.ref) ? opened.delete(r.ref) : opened.add(r.ref); render(); }
+  });
+  addEventListener("keydown", (e) => {
+    if (e.key !== "j" && e.key !== "k") return;
+    const rows = [...document.querySelectorAll("#reg tr.go")];
+    const i = rows.indexOf(document.activeElement);
+    const n = rows[i < 0 ? 0 : Math.min(rows.length - 1, Math.max(0, i + (e.key === "j" ? 1 : -1)))];
+    n.focus(); n.scrollIntoView({ block: "nearest" });
+  });
+  document.getElementById("start").addEventListener("click", () => {
+    const first = document.querySelector("#reg tr.go");
+    if (first) { first.focus(); first.scrollIntoView({ block: "center" }); }
+  });
+
+  document.getElementById("others").innerHTML = OTHERS.map(([st, ref, title, what, k]) => `<tr>
+    <td style="width:150px">${k === "live" ? '<span class="live"></span>' : ""}<span class="stamp sm${st === "Snoozed" ? " faint" : " open"}">${esc(st)}</span></td>
+    <td><div class="mono small muted">${esc(ref)}${k === "yours" ? ' · <span class="stamp sm solid">Yours</span>' : ""}</div><div class="strong">${esc(title)}</div></td>
+    <td class="small text-2">${esc(what)}</td></tr>`).join("");
+  document.getElementById("t-all").textContent = ROWS.reduce((s, r) => s + r.m, 0) + " min";
+  render();
+}
+</script>
+</body>
+</html>

@@ -1,23 +1,24 @@
 import { h, get, post, toast, plural, ago, tri } from "./dom.js";
+import { act } from "./conversation.js";
 import { renderReview, reviewKeys, currentTimeTarget } from "./review.js";
 import { renderRules } from "./rules.js";
-import { renderMineList, renderMine } from "./mine.js";
+import { renderMine, mineHref } from "./mine.js";
 import { renderSettings, loadSettings, TABS } from "./settings.js";
 
 const app = document.getElementById("app");
 export const S = { st: null, review: null, draft: null, rules: null, mine: null, conv: null, settings: null, route: {}, stale: false };
 
-// --- routes: #/, #/r/<owner>/<repo>/<n>/<sheet>[/<id>], #/mine, #/m/<owner>/<repo>/<n>, #/rules, #/settings[/<tab>]
+// --- routes: #/, #/waiting, #/reviewed, #/r/<owner>/<repo>/<n>/<sheet>[/<id>], #/m/<owner>/<repo>/<n>, #/rules, #/settings[/<tab>]
 function parse() {
   const p = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (p[0] === "r" && p.length >= 4) {
     return { name: "review", key: `${p[1]}/${p[2]}#${p[3]}`, sheet: p[4] || "brief", id: p[5] || "" };
   }
   if (p[0] === "m" && p.length >= 4) return { name: "minepr", key: `${p[1]}/${p[2]}#${p[3]}` };
-  if (p[0] === "mine") return { name: "mine" };
+  if (p[0] === "waiting" || p[0] === "reviewed") return { name: "queue", tab: p[0] };
   if (p[0] === "rules") return { name: "rules" };
   if (p[0] === "settings") return { name: "settings", tab: TABS.some(([t]) => t === p[1]) ? p[1] : "metrics" };
-  return { name: "queue" };
+  return { name: "queue", tab: "queue" };
 }
 export function href(key, sheet, id) {
   const m = key.match(/^(.+)\/(.+)#(\d+)$/);
@@ -42,7 +43,7 @@ async function load() {
     if (S.route.name === "settings") await loadSettings(S);
   } catch (e) {
     if (S.route.name === "review") { toast(e.message); go("#/"); return; }
-    if (S.route.name === "minepr") { toast(e.message); go("#/mine"); return; }
+    if (S.route.name === "minepr") { toast(e.message); go("#/"); return; }
     toast(e.message);
   }
   render();
@@ -68,8 +69,7 @@ function render() {
   else if (S.route.name === "rules") view = [masthead(), renderRules(S)];
   else if (S.route.name === "settings") view = [masthead(), renderSettings(S)];
   else if (S.route.name === "minepr" && S.mine) view = renderMine(S);
-  else if (S.route.name === "mine") view = [masthead(), h("div.sheet", inboxTabs("mine"), h("div.body", renderMineList(S)))];
-  else view = [masthead(), queue()];
+  else view = [masthead(), queue(S.route.tab)];
   app.replaceChildren(...[view].flat());
   const pr = (S.route.name === "review" && S.review && S.review.pr) || (S.route.name === "minepr" && S.mine && S.mine.pr);
   document.title = pr ? `${pr.repo} #${pr.number} · Docket` : "Docket";
@@ -91,31 +91,153 @@ function masthead() {
         h("span.label", "Settings"), h("span.cell-v", S.st.demo ? "demo mode" : "metrics, agent, policy"))));
 }
 
-// inboxTabs switches between the pull requests waiting on the user's review
-// and the ones they wrote.
-function inboxTabs(active) {
-  const open = (S.st.queue.reviews || []).filter((r) => r.lane !== "done").length;
-  const mine = S.st.mine || [], need = mine.filter((m) => m.lane === "needs-you").length;
-  return h("nav.sheets", { "aria-label": "Inbox" },
-    h("a", { href: "#/", "aria-current": active === "queue" ? "page" : null }, `To review · ${open}`),
-    h("a", { href: "#/mine", "aria-current": active === "mine" ? "page" : null }, `Yours · ${mine.length}`, need ? h("span.stamp.red", { class: "count" }, `${need} need you`) : null));
+// --- inbox: reviews and the user's own pull requests, in one list ---------------
+const BANDS = {
+  quick: ["Quick", "A minute or two each. Clearing these gets things merged."],
+  closer: ["Needs a closer look", "Reviews with questions for you, and fixes only you can make."],
+  skim: ["Skim and approve", "Nothing to decide, and nobody is blocked on these."],
+  waiting: ["Waiting on others", "Your agent, CI or a reviewer has these, or you snoozed them. They come back up when they need you."],
+  done: ["Reviewed", "Reviews you posted. They leave once the pull request closes."],
+};
+const TODO = ["quick", "closer", "skim"];
+const BUDGETS = [[15, "15 min"], [30, "30 min"], [60, "1 h"], [0, "All"]];
+
+export function itemHref(it) { return it.mine ? mineHref(it.key) : href(it.key); }
+const todo = () => (S.st.inbox || []).filter((it) => TODO.includes(it.band));
+
+function budget() {
+  let b = 30;
+  try { const v = localStorage.getItem("docket-budget"); if (v !== null && BUDGETS.some(([m]) => String(m) === v)) b = +v; } catch (e) { /* no storage */ }
+  return b;
 }
 
-// --- queue -------------------------------------------------------------------
-function queue() {
-  const q = S.st.queue, rs = q.reviews || [];
-  const lanes = {
-    judgment: ["Needs your judgment", "Sorted by what is at stake, not by age."],
-    skim: ["Read it, no question for you", "The agent found nothing to ask, but behaviour changes here that a person should read."],
-    clear: ["Nothing needs you", "Every claim checked out and no behaviour needs a person's eye. Sign after a spot-check."],
-    reading: ["Being read", "Your agent has the branch checked out."],
-    failed: ["Could not be read", ""],
-    done: ["Signed", ""],
+// inboxTabs splits what is the user's to do from what others have.
+function inboxTabs(active) {
+  const all = S.st.inbox || [];
+  const n = (band) => all.filter((it) => it.band === band).length;
+  const tab = (name, hash, label) => h("a", { href: hash, "aria-current": active === name ? "page" : null }, label);
+  return h("nav.sheets", { "aria-label": "Inbox" },
+    tab("queue", "#/", `Inbox · ${todo().length}`),
+    tab("waiting", "#/waiting", `Waiting on others · ${n("waiting")}`),
+    tab("reviewed", "#/reviewed", `Reviewed · ${n("done")}`));
+}
+
+// pullRef is the row's first line: where it is, whose it is, its questions.
+function pullRef(it) {
+  const p = it.pr, tris = [];
+  for (let i = 1; i <= (it.decisions || 0); i++) tris.push(tri(i, i <= it.answered));
+  return h("div.mono.small.muted", { class: "row mid gap-u" },
+    h("span", `${p.owner}/${p.repo} #${p.number}`),
+    it.mine ? h("span.stamp.sm.solid", "Yours") : h("span.stamp.sm", "Review"),
+    !it.mine && h("span", p.author),
+    tris.length > 0 && h("span.row", { class: "gap-s" }, tris));
+}
+
+function inboxRow(it, past, open) {
+  const go2 = () => go(itemHref(it));
+  const tr = h("tr.go" + (past ? ".past" : ""), { tabindex: 0, "data-key": it.key, onclick: go2, onkeydown: (e) => { if (e.key === "Enter") go2(); } },
+    h("td",
+      h("button.btn.red.small.move-btn", {
+        onclick: (e) => { e.stopPropagation(); it.action === "Merge" && it.mine ? open(it, "merge") : go2(); },
+      }, it.action),
+      h("button.btn.quiet.small.snooze-btn", { onclick: (e) => { e.stopPropagation(); open(it, "snooze"); } }, "Snooze")),
+    h("td", pullRef(it), h("div", { class: "item-title" }, it.pr.title), h("div.why", it.why)),
+    h("td.r.num", `${it.minutes} min`),
+    h("td.r.small.muted", ago(it.since).replace(" ago", "")));
+  return tr;
+}
+
+// snoozeRow opens under a row to put it aside until it changes or until
+// tomorrow morning.
+function snoozeRow(it, close) {
+  const snooze = (kind) => async (e) => {
+    e.currentTarget.disabled = true;
+    try { await post("/api/snooze", { key: it.key, kind }); toast(kind === "tomorrow" ? "Snoozed until tomorrow morning." : "Snoozed until it changes."); close(); }
+    catch (err) { toast(err.message); e.currentTarget.disabled = false; }
   };
-  const open = rs.filter((r) => r.lane !== "done");
-  const need = open.reduce((n, r) => n + r.needLines, 0), total = open.reduce((n, r) => n + r.totalLines, 0);
-  const decisions = open.reduce((n, r) => n + (r.decisions - r.answered), 0);
-  const minutes = open.filter((r) => r.status === "ready").reduce((n, r) => n + r.minutes, 0);
+  return h("tr.expand", h("td"), h("td", { colspan: 3 },
+    h("div.row", { class: "mid gap-u" },
+      h("span", "Snooze it"),
+      h("button.btn.small", { onclick: snooze("change") }, "Until it changes"),
+      h("button.btn.small", { onclick: snooze("tomorrow") }, "Until tomorrow"),
+      h("button.btn.quiet.small", { onclick: close }, "Cancel"),
+      h("span.small.muted", "It waits with the others, and comes back on its own."))));
+}
+
+// mergeRow is the confirm that opens under a Merge row, so a pull request
+// that is ready can merge without leaving the inbox.
+function mergeRow(it, close) {
+  const m = (S.st.mine || []).find((x) => `${x.pr.owner}/${x.pr.repo}#${x.pr.number}` === it.key);
+  const methods = (m && m.state.methods) || [];
+  const method = methods.includes("SQUASH") ? "SQUASH" : methods[0];
+  const name = { MERGE: "Merge", SQUASH: "Squash and merge", REBASE: "Rebase and merge" }[method] || "Merge";
+  return h("tr.expand", h("td"), h("td", { colspan: 3 },
+    method
+      ? h("div.row", { class: "mid gap-u" },
+        h("span", `${name} `, h("span.mono", it.pr.headRef), " into ", h("span.mono", it.pr.baseRef), "?"),
+        h("button.btn.red.small", { onclick: async (e) => {
+          e.currentTarget.disabled = true;
+          if (await act(it.key, { kind: "merge", method, confirm: true })) { toast("Merged."); refresh(true); } else e.currentTarget.disabled = false;
+        } }, "Confirm merge"),
+        h("button.btn.quiet.small", { onclick: close }, "Cancel"))
+      : h("div.row", { class: "mid gap-u" }, h("span", "This repository doesn't allow merging from here."), h("a.small", { href: itemHref(it) }, "Open it"))));
+}
+
+function register(items, opts) {
+  const { cut, opened, open, bands } = opts;
+  let sum = 0, cutDone = false;
+  const bodies = bands.map((band) => {
+    const list = items.filter((it) => it.band === band);
+    if (!list.length) return null;
+    const [title, sub] = BANDS[band];
+    const rows = [h("tr.bandrow", h("td", { colspan: 4 }, h("h2.h2", `${title} · ${list.length}`), h("span.small.muted", sub)))];
+    for (const it of list) {
+      if (cut && !cutDone && sum + it.minutes > cut) {
+        rows.push(h("tr.cut", h("td", { colspan: 4 }, h("div.dim", h("span", sum ? `Your ${cut} minutes end here` : `Nothing fits in ${cut} minutes`)))));
+        cutDone = true;
+      }
+      sum += it.minutes;
+      rows.push(inboxRow(it, cutDone, open));
+      if (opened && opened.key === it.key) rows.push((opened.kind === "snooze" ? snoozeRow : mergeRow)(it, () => open(null)));
+    }
+    return h("tbody", rows);
+  });
+  return h("div.scroll-x", h("table.reg.inbox",
+    h("thead", h("tr", h("th", "Do"), h("th", "Pull request"), h("th.r", "Time"), h("th.r", "Waiting"))),
+    bodies));
+}
+
+// others is a plain list for the waiting and reviewed tabs.
+function others(items, band) {
+  const list = items.filter((it) => it.band === band);
+  const [title, sub] = BANDS[band];
+  if (!list.length) return h("div.block", h("h2.h2", band === "done" ? "No posted reviews" : "Nothing is waiting on anyone else"), h("p.lede", sub));
+  return h("div.block",
+    h("div.row", { class: "spread base" }, h("h2.h2", `${title} · ${list.length}`), h("span.small.muted", sub)),
+    h("div.scroll-x", h("table.reg.lanes",
+      h("thead", h("tr", h("th", "Pull request"), h("th", "Status"), h("th", "What's happening"), h("th.r", "Updated"))),
+      h("tbody", list.map((it) => h("tr.go", { tabindex: 0, onclick: () => go(itemHref(it)), onkeydown: (e) => { if (e.key === "Enter") go(itemHref(it)); } },
+        h("td", pullRef(it), h("div", { class: "item-title" }, it.pr.title)),
+        h("td", it.live && h("span.live"), h("span.stamp.sm" + (it.band === "done" ? ".solid" : it.snoozed ? ".faint" : ".open"), it.status || "Posted"),
+          it.snoozed && h("div", { class: "mt" }, h("button.btn.small", { onclick: async (e) => {
+            e.stopPropagation();
+            try { await post("/api/snooze", { key: it.key, kind: "" }); toast("Back in the inbox."); refresh(true); } catch (err) { toast(err.message); }
+          } }, "Wake it now"))),
+        h("td.small.text-2", it.live && it.activity ? h("span", { "data-activity": it.key }, it.activity) : it.why),
+        h("td.r.small.muted", ago(it.band === "done" ? it.since : it.pr.updatedAt))))))));
+}
+
+// opened is the row with a confirm open under it: { key, kind }.
+let opened = null;
+
+function queue(tab) {
+  const q = S.st.queue, all = S.st.inbox || [], list = todo();
+  const b = budget();
+  const total = list.reduce((n, it) => n + it.minutes, 0);
+  let fit = 0;
+  for (const it of list) { if (b && fit + it.minutes > b) break; fit += it.minutes; }
+  const waiters = [...new Set(list.map((it) => it.waiter).filter(Boolean))];
+  const nMine = list.filter((it) => it.mine).length;
 
   const addInput = h("input.field.mono", { id: "add", placeholder: "owner/repo#123 or a pull request URL", "aria-label": "Pull request to read" });
   const add = async () => {
@@ -125,54 +247,40 @@ function queue() {
   };
   addInput.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
 
-  const row = (r) => {
-    const p = r.pr;
-    const ready = r.status === "ready" || r.status === "posted";
-    const tris = [];
-    for (let i = 1; i <= r.decisions; i++) tris.push(tri(i, i <= r.answered));
-    return h("tr.go", { onclick: () => go(href(r.key)), tabindex: 0, onkeydown: (e) => { if (e.key === "Enter") go(href(r.key)); } },
-      h("td", h("div.mono.small.muted", `${p.owner}/${p.repo} #${p.number}`),
-        h("div", { class: "item-title" }, p.title),
-        h("div.small.muted", `${p.author} · ${(p.why || []).join(", ")}${r.slice ? ` · ${r.slice} files are yours` : ""}`),
-        r.pushed && h("div.small", { class: "text-red" }, "The author pushed since this was read. Reading again.")),
-      h("td", ready
-        ? (r.decisions ? h("div.row", { class: "gap-s" }, tris) : h("span.stamp.faint", "none"))
-        : r.status === "failed" ? h("span.stamp.open", "failed")
-        : h("span.small", h("span.live"), h("span", { "data-activity": r.key }, r.activity || "Queued"))),
-      h("td", ready && h("div", h("div.num", `${r.needLines} of ${r.totalLines}`),
-        h("div.meter", { title: "share of changed lines that need a person" }, h("i", { style: { width: (r.totalLines ? Math.max(r.needLines / r.totalLines * 100, r.needLines ? 4 : 0) : 0) + "%" } })))),
-      h("td.r.num", ready ? `${r.minutes} min` : ""),
-      h("td.r.small.muted", r.status === "failed" ? r.error.split("\n")[0].slice(0, 80) : r.contradicted ? h("span.stamp.contra", `${r.contradicted} contradicted`) : ago(p.updatedAt)));
-  };
+  const setBudget = (m) => { try { localStorage.setItem("docket-budget", String(m)); } catch (e) { /* no storage */ } render(); };
+  const open = (it, kind) => { opened = it ? { key: it.key, kind } : null; render(); };
 
-  const groups = Object.entries(lanes).map(([lane, [title, sub]]) => {
-    const list = rs.filter((r) => r.lane === lane);
-    if (!list.length) return null;
-    return h("div.block",
-      h("div.row", { class: "spread base" },
-        h("h2.h2", `${title} · ${list.length}`), sub && h("span.small.muted", sub)),
-      h("div.scroll-x", h("table.reg.queue",
-        h("thead", h("tr", h("th", "Pull request"), h("th", "Decisions"), h("th", "Lines needing you"), h("th.r", "Your time"), h("th.r", ""))),
-        h("tbody", list.map(row)))));
-  });
-
-  return h("div.sheet", inboxTabs("queue"), h("div.body",
-    S.st.demo && h("div.banner", "Demo mode: sample pull requests (three to review, three of yours) and a scripted agent. Nothing is read from or posted to GitHub."),
-    q.syncError && h("div.banner.red", q.syncError),
-    !S.st.agent.command && h("div.banner.red", "No agent is set up, so nothing can be read. ", h("a", { href: "#/settings/agent" }, "Pick one in Settings.")),
+  let body;
+  if (tab === "waiting") body = others(all, "waiting");
+  else if (tab === "reviewed") body = others(all, "done");
+  else body = [
     h("div.tally",
-      h("div", h("div.label", "Waiting on you"), h("div.big", open.length), h("div.small.muted", "pull requests, found automatically")),
-      h("div", h("div.label", "Lines that need a person"), h("div.big.red", need), h("div.small.muted", total ? `of ${total} changed (${Math.round(need / total * 100)}%)` : "")),
-      h("div", h("div.label", "Open decisions"), h("div.big", decisions), h("div.small.muted", minutes ? `about ${minutes} min of reading` : "")),
+      h("div", h("div.label", "To do"), h("div.big.red", list.length), h("div.small.muted", `${list.length - nMine} reviews, ${nMine} of yours`)),
+      h("div", h("div.label", "People waiting on you"), h("div.big", waiters.length), h("div.small.muted", waiters.slice(0, 4).join(", ") + (waiters.length > 4 ? ` and ${waiters.length - 4} more` : ""))),
+      h("div", h("div.label", "All of it"), h("div.big", `${total} min`), h("div.small.muted", b ? `${fit} min fits in ${b}` : "")),
       h("div", { class: "stack vcenter" },
         h("label.label", { for: "add" }, "Read another"),
         h("div.row", { class: "one-line gap-u" }, addInput, h("button.btn", { onclick: add }, "Read")))),
-    groups.some(Boolean) ? groups : h("div.block",
-      h("h2.h2", "Nothing is waiting on you"),
-      h("p.lede", "Pull requests where your review is requested or that are assigned to you appear here on their own, and your agent starts reading each one as it arrives.")),
+    list.length > 0 && h("div.row", { class: "spread mid" },
+      h("div.row", { class: "mid gap-m" },
+        h("span.label.ink", "I have"),
+        h("div.seg", { role: "group", "aria-label": "Time you have" },
+          BUDGETS.map(([m, label]) => h("button", { "aria-pressed": String(m === b), onclick: () => setBudget(m) }, label)))),
+      h("button.btn.primary", { onclick: () => go(itemHref(list[0])) }, `Start: ${list[0].action} #${list[0].pr.number}`)),
+    list.length > 0 ? register(list, { cut: b, opened, open, bands: TODO })
+      : h("div.block", h("h2.h2", "Nothing to do"),
+        h("p.lede", "Review requests, and your own pull requests when they need something from you, show up here on their own.")),
+  ];
+
+  return h("div.sheet", inboxTabs(tab || "queue"), h("div.body",
+    S.st.demo && h("div.banner", "Demo mode: sample pull requests and a scripted agent. Nothing is read from or posted to GitHub."),
+    q.syncError && h("div.banner.red", q.syncError),
+    q.mineError && h("div.banner.red", q.mineError),
+    !S.st.agent.command && h("div.banner.red", "No agent is set up, so nothing can be read. ", h("a", { href: "#/settings/agent" }, "Pick one in Settings.")),
+    body,
     h("div.row", { class: "spread mid" },
-      h("span.small.muted", `Checks GitHub every ${Math.round(S.st.config.pollSeconds / 60) || 1} min for review requests and assignments. `,
-        h("span.kbd", "j"), " ", h("span.kbd", "k"), " move between rows, ", h("span.kbd", "Enter"), " opens one."),
+      h("span.small.muted", `Checks GitHub every ${Math.round(S.st.config.pollSeconds / 60) || 1} min. `,
+        h("span.kbd", "j"), " ", h("span.kbd", "k"), " move between rows, ", h("span.kbd", "Enter"), " opens one, ", h("span.kbd", "s"), " snoozes it."),
       h("button.btn.quiet.small", { onclick: async () => { try { await post("/api/sync"); } catch (e) { toast(e.message); } refresh(true); } }, "Check now"))));
 }
 
@@ -238,7 +346,11 @@ addEventListener("keydown", (e) => {
   const t = e.target;
   if (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.tagName === "SELECT") return;
   if (S.route.name === "review") reviewKeys(S, e);
-  else if ((S.route.name === "queue" || S.route.name === "mine") && (e.key === "j" || e.key === "k")) moveRow(e.key === "j" ? 1 : -1);
+  else if (S.route.name === "queue" && (e.key === "j" || e.key === "k")) moveRow(e.key === "j" ? 1 : -1);
+  else if (S.route.name === "queue" && e.key === "s" && t.matches && t.matches("tr.go[data-key]")) {
+    const it = todo().find((x) => x.key === t.dataset.key);
+    if (it) { opened = { key: it.key, kind: "snooze" }; render(); }
+  }
 });
 
 // moveRow moves focus through the inbox's rows; Enter on a row opens it.

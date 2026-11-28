@@ -18,6 +18,18 @@ You need `git`, `gh` (signed in: `gh auth login`) and one ACP agent on your PATH
 
 `make demo` needs none of that and shows the whole loop.
 
+## The inbox
+
+Reviews you were asked for and your own pull requests share one list, sorted by what to do first. Each row has one button, the thing to do (Merge, Review, Reply, Fix checks), and a line that says why it sits where it does.
+
+- **Quick**: a minute or two each, and something merges or someone stops waiting. Merge a pull request that is ready, check a fix the agent held for you, post a review whose questions you have answered, look over what an author changed since you answered, reply to a thread, or nudge a review that has sat for two days.
+- **Needs a closer look**: reviews with questions for you, and failing checks, conflicts or requested changes on yours.
+- **Skim and approve**: reviews with nothing to decide.
+
+Inside each group, a row that merges on your action comes first, then a review by someone who is reviewing one of yours, then anyone who has waited more than a day, then the shortest, then the oldest. Pick how much time you have (15 minutes, 30, an hour, or all of it) and a line shows where it runs out. Once you post a review, the sign-off sheet takes you to whatever is next, review or not.
+
+**Snooze** a row (or press `s` on it) to put it aside until the pull request has new commits or comments, or until 8 the next morning. It waits under **Waiting on others** with what the agent, CI or other reviewers have, and you can wake it there. The reviews you posted are under **Reviewed**.
+
 ## The loop
 
 1. **Found.** Every two minutes Docket asks GitHub for open pull requests where your review is requested (directly or through a team) or that are assigned to you. You can also paste a reference.
@@ -30,7 +42,7 @@ The agent also gets what other reviewers have already said, so it does not raise
 
 ## Your own pull requests
 
-The Yours tab lists every open pull request you wrote, sorted by whose move it is: **Needs you** (a failing check, a conflict, changes requested, a thread waiting on your reply), **Waiting on others** (checks running, a review not in yet) and **Ready to merge**. Each one shows what stands in the way in plain words, its checks with the end of any failed log, and its conversation.
+Every open pull request you wrote is in the inbox: in Quick or Needs a closer look when it needs you (it is ready to merge, a check fails, it conflicts, a reviewer asked for changes, a thread waits on your reply), and under Waiting on others while checks run or a review is not in yet. Each one shows what stands in the way in plain words, its checks with the end of any failed log, and its conversation.
 
 From there you merge (with one confirmation, and only with the methods the repository allows), turn on GitHub's auto-merge, update the branch, mark a draft ready, ask for review, re-run failed jobs, and answer every thread. Docket notifies you when one becomes ready to merge, starts to need you, or gets a review or comment from someone else.
 
@@ -88,6 +100,7 @@ Everything is under `~/.docket` (`DOCKET_HOME` to move it):
 | `reviews/<owner>/<repo>/<n>/<sha>/` | The checkouts, the diff, the agent's probes (`out/`). Removed once the pull request leaves your queue, or once a newer head has been read |
 | `repos/` | Blobless bare clones |
 | `map.json` | Which parts of which repositories you have reviewed, and when |
+| `snoozed.json` | What you snoozed, and until when |
 | `config.json` | Agent, poll interval, concurrency, run-code, receipt, notifications, model prices, agent-on-your-pull-requests, and per-repository settings |
 | `ledger.jsonl` | One line per read, question, posted review, run and step, with the tokens and cost the agent reported: what Metrics is drawn from |
 | `docket.log` | What Docket did and what failed, with times; the previous one is `docket.log.1` |

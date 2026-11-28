@@ -169,7 +169,7 @@ func minePath(key string) string {
 	repo, n, ok := strings.Cut(key, "#")
 	owner, name, ok2 := strings.Cut(repo, "/")
 	if !ok || !ok2 {
-		return "/#/mine"
+		return "/"
 	}
 	return fmt.Sprintf("/#/m/%s/%s/%s", url.PathEscape(owner), url.PathEscape(name), n)
 }

@@ -476,6 +476,33 @@ table.reg.lanes { table-layout: fixed; min-width: 680px; }
 table.reg.lanes th:nth-child(2) { width: 180px; }
 table.reg.lanes th:nth-child(3) { width: 160px; }
 table.reg.lanes th:nth-child(4) { width: 120px; }
+/* --- inbox: one register for reviews and the user's own pull requests ----- */
+table.reg.inbox { table-layout: fixed; min-width: 640px; }
+table.reg.inbox th:nth-child(1) { width: 168px; }
+table.reg.inbox th:nth-child(3) { width: 76px; }
+table.reg.inbox th:nth-child(4) { width: 92px; }
+table.reg.inbox tr.bandrow td { padding: calc(var(--u) * 3) calc(var(--u) * 1.5) var(--u); border-bottom: var(--line) solid var(--ink); }
+table.reg.inbox tbody:first-of-type tr.bandrow td { padding-top: var(--u); }
+.bandrow .h2 { display: inline; margin-right: calc(var(--u) * 1.5); }
+/* the row's action: red, because it is the user's to do */
+.move-btn { width: 100%; justify-content: flex-start; }
+.snooze-btn { width: 100%; justify-content: flex-start; margin-top: calc(var(--u) / 2); }
+/* why a row sits where it does: Docket's reasoning, so a pencil rule */
+.why { margin-top: calc(var(--u) * 0.75); padding-left: var(--u); border-left: 1px dashed var(--pencil); color: var(--text-2); font-size: 13px; }
+/* rows past the time the user set recede */
+table.reg.inbox tr.past td { background: var(--sunk); }
+table.reg.inbox tr.past .item-title { font-weight: 400; color: var(--text-2); }
+table.reg.inbox tr.past .move-btn { border: var(--line) solid var(--text-3); color: var(--text-2); }
+table.reg.inbox tr.expand td { padding-top: 0; }
+table.reg.inbox tr.go:has(+ tr.expand) td { border-bottom: 0; }
+/* the cut line: the time budget, drawn as a dimension line across the register */
+table.reg.inbox tr.cut td { padding: 0; border-bottom: 0; }
+.dim { position: relative; display: flex; align-items: center; justify-content: center; height: 34px; margin: 0 calc(var(--u) * 1.5); }
+.dim::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: var(--line) solid var(--ink); }
+.dim::after { content: ""; position: absolute; left: 0; right: 0; top: calc(50% - 7px); height: 14px; border-left: var(--line) solid var(--ink); border-right: var(--line) solid var(--ink); }
+.dim span { position: relative; z-index: 1; background: var(--sheet); padding: 0 var(--u); font: 13px/1 var(--mono); color: var(--ink); }
+.stamp.sm { padding: 1px 5px; font-size: 11px; }
+
 @media (max-width: 720px) {
   .page { padding: var(--u); }
   .sheet > .body { padding: calc(var(--u) * 2); }
@@ -492,4 +519,18 @@ table.reg.lanes th:nth-child(4) { width: 120px; }
   .setting { grid-template-columns: 1fr; }
   /* a field and its buttons wrap rather than widen the screen */
   .one-line { flex-wrap: wrap; }
+  /* inbox rows stack: the action, the pull request, then the time */
+  table.reg.inbox { min-width: 0; table-layout: auto; }
+  table.reg.inbox thead { display: none; }
+  table.reg.inbox, table.reg.inbox tbody, table.reg.inbox tr, table.reg.inbox td { display: block; }
+  table.reg.inbox tr.go { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--u) calc(var(--u) * 1.5); padding: calc(var(--u) * 1.5) 0; border-bottom: 1px solid var(--hair); }
+  table.reg.inbox tr.go td { padding: 0; border: 0; }
+  table.reg.inbox tr.go td:nth-child(1), table.reg.inbox tr.go td:nth-child(2) { grid-column: 1 / -1; }
+  table.reg.inbox .move-btn, table.reg.inbox .snooze-btn { width: auto; }
+  table.reg.inbox .snooze-btn { margin: 0 0 0 var(--u); }
+  table.reg.inbox tr.go.past { background: var(--sunk); }
+  table.reg.inbox tr.go.past td { background: transparent; }
+  table.reg.inbox tr.expand td:first-child { display: none; }
+  table.reg.inbox tr.bandrow td { padding-left: 0; padding-right: 0; }
+  .dim { margin: 0; }
 }
