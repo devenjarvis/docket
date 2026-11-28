@@ -21,9 +21,24 @@ const (
 	commitRename = "demo-fix-rename-currencymeta"
 	commitNilMap = "demo-fix-nil-map-on-refresh"
 	commitMerge  = "demo-merge-main-into-lib-dates"
+	// commitRefundFix answers both findings of the self-review of #4140.
+	commitRefundFix = "demo-fix-refund-idempotency-and-log"
 )
 
 var patches = map[string]string{
+	commitRefundFix: `diff --git a/src/refunds/client.ts b/src/refunds/client.ts
+--- a/src/refunds/client.ts
++++ b/src/refunds/client.ts
+@@ -9,9 +9,8 @@ export class RefundClient {
+   async refund(req: RefundRequest): Promise<RefundResult> {
+     for (let attempt = 1; ; attempt++) {
+-      console.log("refund attempt", attempt, req);
+       try {
+-        return await this.gateway.post("/refunds", req);
++        return await this.gateway.post("/refunds", req, { idempotencyKey: ` + "`refund-${req.id}`" + ` });
+       } catch (err) {
+         if (!(err instanceof GatewayTimeout) || attempt >= REFUND_MAX_ATTEMPTS) {
+`,
 	commitRename: `diff --git a/src/currency/cache.go b/src/currency/cache.go
 --- a/src/currency/cache.go
 +++ b/src/currency/cache.go

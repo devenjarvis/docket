@@ -1,0 +1,68 @@
+diff --git a/src/refunds/client.test.ts b/src/refunds/client.test.ts
+index 77c0d1e..b1f9a20 100644
+--- a/src/refunds/client.test.ts
++++ b/src/refunds/client.test.ts
+@@ -1,8 +1,21 @@
+ import { RefundClient } from "./client";
+-import { fakeGateway } from "../gateway/fake";
++import { fakeGateway, timeouts } from "../gateway/fake";
+ 
+ test("sends the refund", async () => {
+   const gw = fakeGateway();
+   await new RefundClient(gw).refund({ id: "rf_1", amount: 500 });
+   expect(gw.posts).toHaveLength(1);
+ });
++
++test("retries a gateway timeout", async () => {
++  const gw = fakeGateway(timeouts(2));
++  const res = await new RefundClient(gw).refund({ id: "rf_2", amount: 500 });
++  expect(res.status).toBe("succeeded");
++  expect(gw.posts).toHaveLength(3);
++});
++
++test("gives up after three attempts", async () => {
++  const gw = fakeGateway(timeouts(5));
++  await expect(new RefundClient(gw).refund({ id: "rf_3", amount: 500 })).rejects.toThrow("timeout");
++  expect(gw.posts).toHaveLength(3);
++});
+diff --git a/src/refunds/client.ts b/src/refunds/client.ts
+index 3a1f2c0..c07d5e3 100644
+--- a/src/refunds/client.ts
++++ b/src/refunds/client.ts
+@@ -1,11 +1,25 @@
+ import { Gateway, GatewayTimeout } from "../gateway";
++import { REFUND_MAX_ATTEMPTS, REFUND_BACKOFF_MS } from "./config";
+ import type { RefundRequest, RefundResult } from "./types";
+ 
+ export class RefundClient {
+   constructor(private gateway: Gateway) {}
+ 
+   /** Sends a refund to the payment gateway. */
+   async refund(req: RefundRequest): Promise<RefundResult> {
+-    return this.gateway.post("/refunds", req);
++    for (let attempt = 1; ; attempt++) {
++      try {
++        return await this.gateway.post("/refunds", req, { idempotencyKey: `refund-${req.id}` });
++      } catch (err) {
++        if (!(err instanceof GatewayTimeout) || attempt >= REFUND_MAX_ATTEMPTS) {
++          throw err;
++        }
++        await sleep(REFUND_BACKOFF_MS * attempt);
++      }
++    }
+   }
+ }
++
++function sleep(ms: number): Promise<void> {
++  return new Promise((resolve) => setTimeout(resolve, ms));
++}
+diff --git a/src/refunds/config.ts b/src/refunds/config.ts
+new file mode 100644
+index 0000000..5c2e7a1
+--- /dev/null
++++ b/src/refunds/config.ts
+@@ -0,0 +1,4 @@
++/** How many times a refund is sent before a gateway timeout is final. */
++export const REFUND_MAX_ATTEMPTS = 3;
++/** The wait before the second attempt; it grows by this much each time. */
++export const REFUND_BACKOFF_MS = 500;

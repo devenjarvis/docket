@@ -67,7 +67,10 @@ const nudgeAfter = 48 * time.Hour
 // one whose author is reviewing the user's own work, then anyone who has
 // waited over a day, then the shortest, then the oldest. A snoozed row waits
 // with the others until its snooze is over.
-func BuildInbox(viewer string, reviews []Summary, mine []model.Mine, snoozes map[string]Snooze, now time.Time) []Item {
+//
+// selfs holds the self-reviews of the user's own pull requests, by key; they
+// show on the pull request's own row, never as a row of their own.
+func BuildInbox(viewer string, reviews []Summary, mine []model.Mine, selfs map[string]Summary, snoozes map[string]Snooze, now time.Time) []Item {
 	// Who is reviewing the user's own pull requests, and on which one.
 	reviewing := map[string]int{}
 	for _, m := range mine {
@@ -90,7 +93,11 @@ func BuildInbox(viewer string, reviews []Summary, mine []model.Mine, snoozes map
 		out = append(out, reviewItem(s, reviewing, now))
 	}
 	for _, m := range mine {
-		out = append(out, mineItem(viewer, m, now))
+		var self *Summary
+		if s, ok := selfs[m.PR.Key()]; ok {
+			self = &s
+		}
+		out = append(out, mineItem(viewer, m, self, now))
 	}
 	for i := range out {
 		it := &out[i]
@@ -197,9 +204,50 @@ func reviewItem(s Summary, reviewing map[string]int, now time.Time) Item {
 	return it
 }
 
-func mineItem(viewer string, m model.Mine, now time.Time) Item {
+// selfState is where a self-review stands, as the row needs it.
+type selfState struct {
+	reading bool
+	open    int // findings not settled yet
+	wrap    bool
+	fixes   int
+	notes   int
+	minutes int
+}
+
+func selfOf(s *Summary) selfState {
+	var st selfState
+	if s == nil {
+		return st
+	}
+	switch s.Status {
+	case "queued", "reading":
+		st.reading = true
+	case "ready", "posted":
+		st.open = s.Decisions - s.Answered
+		st.minutes = max(s.Minutes, 1)
+		if s.Fixes > 0 && !s.Handed {
+			st.fixes = s.Fixes
+		}
+		if s.Notes > 0 && !s.Posted {
+			st.notes = s.Notes
+		}
+		st.wrap = st.open <= 0 && st.fixes+st.notes > 0
+	}
+	return st
+}
+
+func mineItem(viewer string, m model.Mine, self *Summary, now time.Time) Item {
 	p := m.PR
 	it := Item{Key: p.Key(), Mine: true, PR: p, Since: p.UpdatedAt, Action: "Open", tier: 3}
+	sr := selfOf(self)
+	if self != nil && self.Decisions > 0 {
+		it.Decisions, it.Answered = self.Decisions, self.Answered
+	}
+	// The self-review goes first while nothing more concrete is on the
+	// author: before reviewers, it is the cheapest time to fix things.
+	selfFirst := func(first *model.Blocker) bool {
+		return first == nil || first.Kind == model.BlockDraft || first.Kind == model.BlockBehind
+	}
 	held := 0
 	var heldWhy string
 	fix := false
@@ -252,6 +300,26 @@ func mineItem(viewer string, m model.Mine, now time.Time) Item {
 		if m.Tend.Trigger != "" {
 			it.Why = "Your agent is working on it: " + strings.ToLower(strings.TrimSuffix(m.Tend.Trigger, ".")) + "."
 		}
+	case sr.reading && first != nil && first.Kind == model.BlockDraft:
+		// Marking it ready now would skip the review it is getting.
+		it.Band, it.Status, it.Live, it.Activity = BandWaiting, "Self-reviewing", true, self.Activity
+		it.Why = "Your agent is reviewing it the way you review others. Mark it ready once you've seen what it found."
+	case sr.open > 0 && selfFirst(first):
+		it.Band, it.Action, it.Minutes = BandCloser, "Self-review", sr.minutes
+		it.Why = fmt.Sprintf("Your agent reviewed it the way you review others and found %s to settle before anyone else looks.", strings.ToLower(count(sr.open))+" thing"+plural(sr.open))
+		if p.Draft {
+			it.Why += " It's still a draft."
+		}
+	case sr.wrap && selfFirst(first):
+		it.Band, it.Action, it.Minutes, it.tier = BandQuick, "Wrap up", 1, 0
+		var parts []string
+		if sr.fixes > 0 {
+			parts = append(parts, fmt.Sprintf("hand %s to your agent", strings.ToLower(count(sr.fixes))+" fix"+es(sr.fixes)))
+		}
+		if sr.notes > 0 {
+			parts = append(parts, fmt.Sprintf("post %s for reviewers", strings.ToLower(count(sr.notes))+" note"+plural(sr.notes)))
+		}
+		it.Why = "You've settled your self-review: " + strings.Join(parts, " and ") + "."
 	case first != nil:
 		it.Why = first.Text
 		switch first.Kind {
@@ -316,8 +384,27 @@ func mineItem(viewer string, m model.Mine, now time.Time) Item {
 		default:
 			it.Status, it.Why = "Waiting", "GitHub hasn't said what it's waiting on yet."
 		}
+		if sr.reading && it.Band == BandWaiting {
+			it.Status, it.Live, it.Activity = "Self-reviewing", true, self.Activity
+			it.Why = "Your agent is reviewing it the way you review others, before reviewers do."
+		}
+	}
+	if it.Action != "Self-review" && it.Action != "Wrap up" {
+		switch {
+		case sr.open > 0:
+			it.Why += fmt.Sprintf(" Your self-review has %s open.", strings.ToLower(count(sr.open))+" finding"+plural(sr.open))
+		case sr.wrap:
+			it.Why += " Your self-review is settled but not wrapped up."
+		}
 	}
 	return it
+}
+
+func es(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "es"
 }
 
 // changesBy is the latest reviewer who asked for changes.

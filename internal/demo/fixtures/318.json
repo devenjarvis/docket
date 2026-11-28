@@ -1,0 +1,21 @@
+{
+  "summary": "Settlement reads a currency's metadata from an in-memory cache instead of the database. The cache is filled at startup and refreshed hourly.",
+  "claims": [
+    {"id": "c1", "text": "Currency metadata is no longer read from the database on every settlement.", "status": "proved", "evidence": "Settle calls currency.Cached; a query counter in the test database stays at zero across 100 settlements."},
+    {"id": "c2", "text": "It is refreshed hourly.", "status": "unproven", "evidence": "The ticker is set to an hour, but Refresh panics on a nil map in the test suite (the failing CI check), so a refresh was never seen to work."}
+  ],
+  "sections": [
+    {"id": "s1", "title": "The cache and its refresh", "kind": "judgment", "why": "New startup state that every settlement now depends on.", "minutes": 3,
+     "files": [{"path": "src/currency/cache.go"}]},
+    {"id": "s2", "title": "Settlement reads the cache", "kind": "skim", "why": "Follows from the cache.", "proof": "go vet passes; the settlement tests other than the refresh test pass.", "minutes": 1,
+     "files": [{"path": "src/settlement/settle.go"}]}
+  ],
+  "decisions": [],
+  "context": null,
+  "ruleHits": [{"rule": "R09", "result": "passed", "note": "Rounding is unchanged."}],
+  "uncovered": ["A currency added while the service runs is unknown until the next refresh."],
+  "work": [
+    {"did": "go test ./...", "result": "TestSettleUsesCachedMeta panics: assignment to entry in nil map. CI fails the same way; the failing check is already on your list."},
+    {"did": "Counted queries across 100 settlements", "result": "0"}
+  ]
+}

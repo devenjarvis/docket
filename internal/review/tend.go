@@ -119,10 +119,12 @@ func waiting(t *model.Tend) int {
 
 // Tend starts a run on an own pull request because the user asked.
 func (e *Engine) Tend(key string) error {
-	return e.startTend(key, nil, false)
+	return e.startTend(key, nil, nil, false)
 }
 
-func (e *Engine) startTend(key string, notes []string, auto bool) error {
+// startTend starts a run. tasks are self-review findings the author handed
+// over; a run with tasks is always one the user asked for.
+func (e *Engine) startTend(key string, notes []string, tasks []model.TendTask, auto bool) error {
 	if e.off(repoOf(key)) {
 		return errors.New("Docket is turned off for this repository: change it in Settings")
 	}
@@ -187,8 +189,12 @@ func (e *Engine) startTend(key string, notes []string, auto bool) error {
 			earlier = earlier[len(earlier)-maxEarlier:]
 		}
 	}
+	trigger := blockerWords(m.Blockers)
+	if len(tasks) > 0 {
+		trigger = fmt.Sprintf("Fixing %s from your self-review.", strings.ToLower(count(len(tasks)))+" finding"+plural(len(tasks)))
+	}
 	m.Tend = &model.Tend{Status: "running", Activity: "Starting", Head: m.PR.HeadSHA, At: time.Now(), Notes: notes, Agent: agentName,
-		Trigger: blockerWords(m.Blockers), Run: run, Earlier: earlier, Branch: branch, Tip: tip}
+		Trigger: trigger, Run: run, Earlier: earlier, Branch: branch, Tip: tip, Tasks: tasks}
 	e.saveMineLocked(m)
 	snapshot := clone(m)
 	ctx := e.runCtx
@@ -298,12 +304,14 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 			// Plan once more from the new head; the auto-run cap stops a loop.
 			note := "The branch moved on GitHub while you worked, so your commits were not pushed. Plan again from the new head."
 			var notes []string
+			var tasks []model.TendTask
 			e.mu.Lock()
 			if m := e.mine[key]; m != nil && m.Tend != nil {
 				notes = append(notes, m.Tend.Notes...)
+				tasks = m.Tend.Tasks
 			}
 			e.mu.Unlock()
-			if err := e.startTend(key, append(notes, note), true); err != nil {
+			if err := e.startTend(key, append(notes, note), tasks, true); err != nil {
 				e.Logf("%s: no new run after the branch moved: %v", key, err)
 			}
 		}
@@ -349,6 +357,13 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 	if m.Tend != nil && len(m.Tend.Notes) > 0 {
 		inputs["notes.json"] = m.Tend.Notes
 	}
+	taskIDs := map[string]bool{}
+	if m.Tend != nil && len(m.Tend.Tasks) > 0 {
+		inputs["tasks.json"] = m.Tend.Tasks
+		for _, t := range m.Tend.Tasks {
+			taskIDs[t.ID] = true
+		}
+	}
 	for name, v := range inputs {
 		if err := config.WriteJSON(filepath.Join(b.Dir, name), v); err != nil {
 			failed(err)
@@ -384,7 +399,7 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 	}
 	onTop := func(sha string) bool { return e.Branches.OnTop(ctx, b, sha) }
 	prompt := tend.Prompt(tend.PromptData{Dir: b.Dir, Work: b.Work, Scratch: b.Scratch, Out: b.Out, Head: b.Start,
-		Login: e.Viewer(), RunCode: runCode, Notes: inputs["notes.json"] != nil})
+		Login: e.Viewer(), RunCode: runCode, Notes: inputs["notes.json"] != nil, Tasks: len(taskIDs) > 0})
 	var plan *model.TendPlan
 	for attempt := 0; ; attempt++ {
 		stop, err := client.Prompt(ctx, session, prompt, h)
@@ -399,7 +414,7 @@ func (e *Engine) runTend(parent context.Context, key string, m model.Mine, comma
 		} else if plan, err = tend.Parse(raw); err != nil {
 			problems = []string{err.Error()}
 		} else {
-			problems = tend.Validate(plan, threads, checkIDs, onTop)
+			problems = tend.Validate(plan, threads, checkIDs, taskIDs, onTop)
 		}
 		if len(problems) == 0 {
 			// Pin each commit to its SHA, so what is judged is what is pushed.
@@ -604,6 +619,15 @@ func gateContext(m model.Mine, a model.TendAction, before []model.TendAction) st
 			}
 		}
 	}
+	if m.Tend != nil {
+		for _, id := range a.Tasks {
+			for _, t := range m.Tend.Tasks {
+				if t.ID == id {
+					fmt.Fprintf(&b, "A finding from the author's own self-review, which the author asked to have fixed (%s:%d): %s\n  What the author asked for: %s\n", t.Path, t.Line, t.Title, t.Ask)
+				}
+			}
+		}
+	}
 	for i, o := range before {
 		if i == 0 {
 			b.WriteString("Earlier steps in this plan:\n")
@@ -800,10 +824,11 @@ func (e *Engine) Decide(ctx context.Context, key, id, choice, body, note string)
 	m.AutoRuns = 0
 	replan = waiting(t) == 0
 	notes := append([]string(nil), t.Notes...)
+	tasks := t.Tasks
 	e.saveMineLocked(m)
 	e.mu.Unlock()
 	if replan && e.tendMode(repoOf(key)) != TendOff {
-		return e.startTend(key, notes, false)
+		return e.startTend(key, notes, tasks, false)
 	}
 	return nil
 }

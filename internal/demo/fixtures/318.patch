@@ -1,0 +1,43 @@
+diff --git a/src/currency/cache.go b/src/currency/cache.go
+new file mode 100644
+index 0000000..a1b2c3d
+--- /dev/null
++++ b/src/currency/cache.go
+@@ -0,0 +1,22 @@
++package currency
++
++import (
++	"database/sql"
++	"time"
++)
++
++// curMeta holds the metadata loaded at startup.
++var curMeta map[string]Meta
++
++// Refresh reads every currency's metadata again.
++func Refresh(db *sql.DB) error {
++	rows, err := db.Query(metaQuery)
++	if err != nil {
++		return err
++	}
++	for rows.Next() {
++		var m Meta
++		curMeta[m.Code] = m
++	}
++	return rows.Err()
++}
+diff --git a/src/settlement/settle.go b/src/settlement/settle.go
+index 4d5e6f7..8a9b0c1 100644
+--- a/src/settlement/settle.go
++++ b/src/settlement/settle.go
+@@ -14,7 +14,7 @@ func Settle(db *sql.DB, p Payout) (Amount, error) {
+-	meta, err := currency.Load(db, p.Currency)
+-	if err != nil {
+-		return Amount{}, err
+-	}
++	meta, ok := currency.Cached(p.Currency)
++	if !ok {
++		return Amount{}, fmt.Errorf("unknown currency %s", p.Currency)
++	}
+ 	return round(p.Value, meta.MinorUnits), nil
+ }

@@ -34,6 +34,10 @@ type Config struct {
 	// Tend is how the agent works on the user's own pull requests: auto
 	// (on its own when the gate allows), ask (every step waits) or off.
 	Tend string `json:"tend,omitempty"`
+	// SelfReview is whether the agent reads the user's own pull requests the
+	// way it reads others': auto (every new head), ask (when the user asks)
+	// or off.
+	SelfReview string `json:"self_review,omitempty"`
 	// Repos holds what the user set for one repository (owner/name),
 	// overriding the settings above.
 	Repos map[string]Repo `json:"repos,omitempty"`
@@ -55,6 +59,8 @@ type Repo struct {
 	RunCode *bool `json:"run_code,omitempty"`
 	// Tend, when set (auto, ask or off), overrides Config.Tend here.
 	Tend string `json:"tend,omitempty"`
+	// SelfReview, when set (auto, ask or off), overrides Config.SelfReview.
+	SelfReview string `json:"self_review,omitempty"`
 }
 
 // Price is a model's price in US dollars per million tokens.
@@ -111,6 +117,24 @@ func (c Config) TendMode() string {
 	switch c.Tend {
 	case "ask", "off":
 		return c.Tend
+	}
+	return "auto"
+}
+
+// SelfIn is the self-review mode for repo: its own when set, else SelfMode.
+func (c Config) SelfIn(repo string) string {
+	switch t := c.Repos[repo].SelfReview; t {
+	case "auto", "ask", "off":
+		return t
+	}
+	return c.SelfMode()
+}
+
+// SelfMode is SelfReview with its default, auto.
+func (c Config) SelfMode() string {
+	switch c.SelfReview {
+	case "ask", "off":
+		return c.SelfReview
 	}
 	return "auto"
 }

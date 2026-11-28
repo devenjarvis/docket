@@ -48,6 +48,8 @@ type TendAction struct {
 	// Threads and Checks are what a fix answers, or the check a rerun is for.
 	Threads []string `json:"threads,omitempty"`
 	Checks  []string `json:"checks,omitempty"`
+	// Tasks are the self-review findings a fix answers, by decision id.
+	Tasks []string `json:"tasks,omitempty"`
 	// Body is a reply's text.
 	Body string `json:"body,omitempty"`
 	// Stance says how a reply meets the reviewer's request: agrees,
@@ -99,12 +101,26 @@ type Tend struct {
 	At      time.Time `json:"at"`
 	// Notes are what the user sent back, for the next run.
 	Notes []string `json:"notes,omitempty"`
+	// Tasks are self-review findings the author asked the agent to fix.
+	Tasks []TendTask `json:"tasks,omitempty"`
 	// Agent and Model name who did it.
 	Agent string `json:"agent,omitempty"`
 	Model string `json:"model,omitempty"`
 	// Branch is the checkout the agent committed in, kept so a waiting fix
 	// can still be pushed and a pushed one reverted.
 	Branch TendBranch `json:"branch"`
+}
+
+// TendTask is one self-review finding the author handed to the agent: what
+// is wrong, where, and what the author wants done about it.
+type TendTask struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Detail string `json:"detail,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Line   int    `json:"line,omitempty"`
+	// Ask is the fix the author chose, in their words or the agent's draft.
+	Ask string `json:"ask"`
 }
 
 // TendBranch is where a tend run's checkout lives (repo.Branch, which this

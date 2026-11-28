@@ -20,7 +20,13 @@ type PromptData struct {
 	RunCode  bool
 	Slice    bool
 	Previous bool
+	// Self reads the user's own pull request for them, before reviewers do.
+	Self bool
 }
+
+// SelfPrefix starts every self-review prompt, so a scripted agent can tell
+// it from a review.
+const SelfPrefix = "You are reviewing a pull request for its own author"
 
 // Prompt is the instruction for reading one pull request.
 func Prompt(d PromptData) string {

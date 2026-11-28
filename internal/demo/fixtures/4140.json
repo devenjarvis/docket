@@ -1,0 +1,89 @@
+{
+  "summary": "Refunds that time out at the payment gateway are now sent again, up to three attempts in all, waiting 500 ms and then 1 s in between. Any other error, and a timeout on the last attempt, reaches the caller as before. The attempt count and the wait are constants in a new config file.",
+  "claims": [
+    {"id": "c1", "text": "Refund requests that time out at the gateway are tried up to three times.", "status": "proved", "evidence": "The new test \"gives up after three attempts\" passes on head: five timeouts in a row make three posts, then the timeout is thrown."},
+    {"id": "c2", "text": "Nothing changes for a refund that succeeds first time.", "status": "proved", "evidence": "The existing test \"sends the refund\" passes on base and head with one post."},
+    {"id": "c3", "text": "Covered by new tests.", "status": "proved", "evidence": "Two new tests. Both pass on head and fail on base. Neither covers a timeout after the gateway already took the refund."},
+    {"id": "c4", "text": "A retried refund is sent again with nothing that lets the gateway tell it is the same refund.", "status": "unstated", "evidence": "gateway.post is called with the same body and no idempotency key on every attempt (src/refunds/client.ts:13).", "decision": "d1"}
+  ],
+  "sections": [
+    {"id": "s1", "title": "The retry loop around the gateway call", "kind": "judgment", "why": "It changes what reaches the payment gateway when a refund times out.", "minutes": 3,
+     "files": [{"path": "src/refunds/client.ts"}]},
+    {"id": "s2", "title": "Tests for the retry", "kind": "skim", "why": "Two new tests for the new behaviour.", "proof": "Both pass on head and fail on base; the old test passes on both.", "minutes": 1,
+     "files": [{"path": "src/refunds/client.test.ts"}]},
+    {"id": "s3", "title": "Two new constants", "kind": "skim", "why": "The attempt count and the wait, used only by the retry loop.", "proof": "Imported only by client.ts. The values match the description.", "minutes": 0,
+     "files": [{"path": "src/refunds/config.ts"}]}
+  ],
+  "decisions": [
+    {
+      "id": "d1", "section": "s1",
+      "title": "A retry sends the same refund again with no idempotency key, so a timeout after the gateway took the refund pays it out twice.",
+      "headline": "One refund, paid twice.",
+      "detail": "A gateway timeout does not mean the refund failed: the gateway may have made it and only the reply was lost. The retry posts the same body with nothing the gateway can dedupe on. The gateway takes an idempotency key for exactly this (docs/gateway.md:88).",
+      "question": "Fix it before anyone reviews it?",
+      "options": [
+        {"id": "a", "label": "Send an idempotency key", "detail": "Derive it from the refund id, so every attempt of one refund carries the same key.", "effect": "blocking",
+         "comment": "In `RefundClient.refund`, pass `{ idempotencyKey: `refund-${req.id}` }` to `gateway.post` on every attempt, so the gateway dedupes retries of one refund."},
+        {"id": "b", "label": "Leave it, and tell reviewers why", "detail": "If the gateway already dedupes by refund id on its side.", "effect": "ask",
+         "comment": "Retries resend the same refund id, and the gateway dedupes refunds by id, so a retried timeout cannot pay out twice."},
+        {"id": "c", "label": "Fine as it is", "detail": "Accept a double refund when a reply is lost.", "effect": "accept", "comment": ""}
+      ],
+      "anchor": {"path": "src/refunds/client.ts", "line": 13},
+      "hot": [{"path": "src/refunds/client.ts", "ranges": [[10, 20]]}],
+      "evidence": [
+        {"kind": "probe", "title": "The gateway takes the refund, then the reply times out",
+         "command": "npx jest out/probe-lost-reply.test.ts",
+         "code": "const gw = fakeGateway(timeoutAfterAccept(1));\nawait new RefundClient(gw).refund({ id: \"rf_9\", amount: 500 });\nexpect(gw.refundsPaid(\"rf_9\")).toBe(1);",
+         "output": "Expected: 1\nReceived: 2\n\n  posts: 2, refunds paid: 2", "passed": false, "file": "probe-lost-reply.test.ts"}
+      ],
+      "beforeAfter": {"kind": "table", "title": "What the customer gets", "scenario": "A 5 EUR refund whose first reply times out after the gateway made it.", "measured": true,
+        "rows": [
+          {"label": "Refund paid", "before": "5 EUR, once", "after": "5 EUR, twice", "changed": true},
+          {"label": "What the caller sees", "before": "A timeout error", "after": "Success", "changed": true},
+          {"label": "A refund that succeeds first time", "before": "Paid once", "after": "Paid once", "changed": false}
+        ]},
+      "rule": "R07"
+    },
+    {
+      "id": "d2", "section": "s1",
+      "title": "A console.log left in the retry loop prints every refund request, with the card's last four digits and the customer's email, to the service log.",
+      "headline": "A debug log ships.",
+      "detail": "Line 11 logs the whole request on every attempt. A request carries card.last4 and the customer's email (src/refunds/types.ts:6). Nothing else in src/ uses console.log: the service logs through logger, which redacts those fields (src/log.ts:12).",
+      "question": "Take it out before review?",
+      "options": [
+        {"id": "a", "label": "Remove it", "detail": "Log the attempt through logger with the refund id only, or not at all.", "effect": "blocking",
+         "comment": "Remove the `console.log(\"refund attempt\", attempt, req)` line from `RefundClient.refund`."},
+        {"id": "b", "label": "Keep it for now, and say why", "detail": "While the rollout is watched.", "effect": "ask",
+         "comment": "The attempt log is there while we watch the rollout. It goes in the follow-up."},
+        {"id": "c", "label": "Fine as it is", "detail": "", "effect": "accept", "comment": ""}
+      ],
+      "anchor": {"path": "src/refunds/client.ts", "line": 11},
+      "hot": [{"path": "src/refunds/client.ts", "ranges": [[11, 11]]}],
+      "evidence": [
+        {"kind": "search", "title": "console.log anywhere under src/", "command": "rg -n 'console\\.log' src/", "output": "src/refunds/client.ts:11:      console.log(\"refund attempt\", attempt, req);"},
+        {"kind": "read", "title": "What a refund request holds", "output": "src/refunds/types.ts:6  card: { last4: string; brand: string }; customerEmail: string"}
+      ],
+      "rule": "repo"
+    }
+  ],
+  "context": null,
+  "ruleHits": [
+    {"rule": "R07", "result": "violated", "note": "Refunds are retried with no idempotency key.", "decision": "d1"},
+    {"rule": "R15", "result": "passed", "note": "gateway.post uses the client's 10 s timeout (src/gateway/index.ts:22)."},
+    {"rule": "R03", "result": "passed", "note": "Both new exports have doc comments."},
+    {"rule": "repo", "result": "violated", "note": "CONTRIBUTING.md: log through logger, never console.", "decision": "d2"}
+  ],
+  "uncovered": [
+    "What the gateway does when it gets two refunds for one charge: refuses the second, or pays it.",
+    "Load during a gateway outage: every timed-out refund now makes three requests."
+  ],
+  "work": [
+    {"did": "Read the diff and the description", "result": "3 files"},
+    {"did": "npm ci in both checkouts", "result": "ok"},
+    {"did": "npx jest src/refunds on head", "result": "3 passed"},
+    {"did": "npx jest src/refunds on base", "result": "1 passed, 2 failed"},
+    {"did": "Wrote a probe for a reply lost after the gateway took the refund", "result": "fails on head"},
+    {"did": "Searched src/ for console.log", "result": "1 match"},
+    {"did": "Checked your rules R03, R07, R12 and R15", "result": "R07 violated"}
+  ]
+}

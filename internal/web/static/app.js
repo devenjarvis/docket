@@ -6,7 +6,7 @@ import { renderMine, mineHref } from "./mine.js";
 import { renderSettings, loadSettings, TABS } from "./settings.js";
 
 const app = document.getElementById("app");
-export const S = { st: null, review: null, draft: null, rules: null, mine: null, conv: null, settings: null, route: {}, stale: false };
+export const S = { st: null, review: null, draft: null, rules: null, mine: null, self: null, conv: null, settings: null, route: {}, stale: false };
 
 // --- routes: #/, #/waiting, #/reviewed, #/r/<owner>/<repo>/<n>/<sheet>[/<id>], #/m/<owner>/<repo>/<n>, #/rules, #/settings[/<tab>]
 function parse() {
@@ -39,6 +39,8 @@ async function load() {
       S.review = null;
     }
     S.mine = S.route.name === "minepr" ? await get("/api/mine/pr?key=" + encodeURIComponent(S.route.key)) : null;
+    // A pull request of yours may have a self-review; none is not an error.
+    S.self = S.route.name === "minepr" ? await get("/api/review?key=" + encodeURIComponent(S.route.key)).catch(() => null) : null;
     if (S.route.name === "rules") S.rules = await get("/api/rules");
     if (S.route.name === "settings") await loadSettings(S);
   } catch (e) {
@@ -94,7 +96,7 @@ function masthead() {
         h("span", q.viewer || "not signed in"),
         h("span", S.st.agent.name || "no agent set up"),
         h("span", q.syncError ? "GitHub sync failed" : "GitHub checked " + ago(q.lastSync)),
-        live && h("span.agent-now", h("span.live"), `Reading #${live.pr.number}: `, h("span", { "data-activity": live.key }, live.activity || "starting"))),
+        live && h("span.agent-now", h("span.live"), `${live.status === "Self-reviewing" ? "Self-reviewing" : "Reading"} #${live.pr.number}: `, h("span", { "data-activity": live.key }, live.activity || "starting"))),
       h("nav.mast-nav", { "aria-label": "Docket" },
         link("queue", "#/", "In this issue", todo().length),
         link("waiting", "#/waiting", "Waiting on others", n("waiting")),
@@ -114,7 +116,13 @@ const BANDS = {
 const TODO = ["quick", "closer", "skim"];
 const BUDGETS = [[15, "15 min"], [30, "30 min"], [60, "1 h"], [0, "All"]];
 
-export function itemHref(it) { return it.mine ? mineHref(it.key) : href(it.key); }
+// itemHref is where a row's move happens: a self-review's own sheets for
+// settling or wrapping it up, else the pull request.
+export function itemHref(it) {
+  if (it.mine && it.action === "Self-review") return href(it.key, "brief");
+  if (it.mine && it.action === "Wrap up") return href(it.key, "signoff");
+  return it.mine ? mineHref(it.key) : href(it.key);
+}
 const todo = () => (S.st.inbox || []).filter((it) => TODO.includes(it.band));
 
 function budget() {
@@ -343,7 +351,7 @@ function connect() {
       return;
     }
     if (e.type === "activity") {
-      if (S.route.name === "queue" || (S.route.name === "review" && e.key === S.route.key && S.review && S.review.status !== "ready")) {
+      if (S.route.name === "queue" || (S.route.name === "minepr" && e.key === S.route.key) || (S.route.name === "review" && e.key === S.route.key && S.review && S.review.status !== "ready")) {
         const el = document.querySelector(`[data-activity="${CSS.escape(e.key)}"]`);
         if (el) el.textContent = e.text; else if (S.route.name === "queue") refresh();
       }

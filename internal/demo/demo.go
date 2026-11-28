@@ -101,6 +101,9 @@ func (c Checkout) Prepare(_ context.Context, pr model.PR) (repo.Workspace, strin
 		}
 	}
 	d := fixture(fmt.Sprintf("%d.patch", pr.Number))
+	if f := fixedFixture(pr.Number, pr.HeadSHA, "patch"); f != "" {
+		d = f
+	}
 	if d == "" {
 		return ws, "", fmt.Errorf("the demo has no diff for #%d", pr.Number)
 	}
@@ -108,6 +111,15 @@ func (c Checkout) Prepare(_ context.Context, pr model.PR) (repo.Workspace, strin
 }
 
 func (Checkout) Release(context.Context, model.PR, repo.Workspace) {}
+
+// fixedFixture is the diff or brief of a demo pull request after the
+// scripted agent fixed its self-review findings, or "" when head is not that.
+func fixedFixture(number int, head, ext string) string {
+	if head != commitRefundFix {
+		return ""
+	}
+	return fixture(fmt.Sprintf("%d-fixed.%s", number, ext))
+}
 
 // Seed fills an empty rulebook and reviewer map with believable history, so
 // the rulebook screen and the context page have something to show.

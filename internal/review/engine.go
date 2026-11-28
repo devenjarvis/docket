@@ -39,6 +39,10 @@ type Engine struct {
 	// whether the agent acts on the user's pull requests there on its own
 	// when that is safe.
 	TendMode func(repo string) string
+	// SelfMode returns auto, ask or off for a repository: whether the agent
+	// self-reviews the user's own pull requests there on every new head,
+	// when the user asks, or never.
+	SelfMode func(repo string) string
 	Rules    *rules.Store
 	Hub      *Hub
 	// Agent returns the command that starts the user's ACP agent and its
@@ -297,6 +301,10 @@ func (e *Engine) sync(ctx context.Context) error {
 		waiting[key] = true
 		e.mu.Lock()
 		cur := e.reviews[key]
+		if cur != nil && cur.Self {
+			e.mu.Unlock()
+			continue
+		}
 		// Skip the detail call when nothing has changed since the last look.
 		fresh := cur != nil && cur.PR.HeadSHA != "" && cur.PR.UpdatedAt.Equal(found.UpdatedAt)
 		e.mu.Unlock()
@@ -316,6 +324,10 @@ func (e *Engine) sync(ctx context.Context) error {
 	var held []model.PR
 	e.mu.Lock()
 	for key, r := range e.reviews {
+		if r.Self {
+			// The user's own pull requests come and go with syncMine.
+			continue
+		}
 		off := e.off(r.PR.Owner + "/" + r.PR.Repo)
 		if !off && waiting[key] {
 			continue
@@ -427,6 +439,10 @@ func (e *Engine) Add(ctx context.Context, ref string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if v := e.Viewer(); v != "" && pr.Author == v {
+		// One of the user's own: what they can ask for is a self-review.
+		return pr.Key(), e.selfReview(pr)
+	}
 	e.mu.Lock()
 	if cur := e.reviews[pr.Key()]; cur != nil {
 		pr.Why = cur.PR.Why
@@ -504,6 +520,14 @@ type Summary struct {
 	// Found is when the author's wait on the reviewer began, as near as
 	// Docket knows: when it first saw the request.
 	Found time.Time `json:"found"`
+	// For a self-review: Fixes and Notes count the findings the author chose
+	// to fix and to explain to reviewers; Handed says the fixes went to the
+	// agent or the author for this read, and Posted that the notes went up.
+	Self   bool `json:"self,omitempty"`
+	Fixes  int  `json:"fixes,omitempty"`
+	Notes  int  `json:"notes,omitempty"`
+	Handed bool `json:"handed,omitempty"`
+	Posted bool `json:"posted,omitempty"`
 }
 
 // Status is everything the queue screen shows.
@@ -528,11 +552,21 @@ func summarize(r *model.Review) Summary {
 	if s.Found.IsZero() {
 		s.Found = r.PR.UpdatedAt
 	}
+	s.Self = r.Self
+	s.Handed = r.Handed != nil && r.Handed.SHA == r.ReadSHA
+	s.Posted = r.Posted != nil && r.Posted.SHA == r.ReadSHA
 	if b := r.Brief; b != nil {
 		s.Decisions = len(b.Decisions)
 		for _, d := range b.Decisions {
 			if a, ok := r.Answers[d.ID]; ok && a.Option != "" {
 				s.Answered++
+				for _, o := range d.Options {
+					if o.ID == a.Option && o.Effect == model.Blocking {
+						s.Fixes++
+					} else if o.ID == a.Option && o.Effect == model.Ask {
+						s.Notes++
+					}
+				}
 			}
 		}
 		total := 0
@@ -579,6 +613,9 @@ func (e *Engine) List() Status {
 	defer e.mu.Unlock()
 	st := Status{Viewer: e.viewer, SyncErr: e.syncErr, MineErr: e.mineErr, LastSync: e.lastSync}
 	for _, r := range e.reviews {
+		if r.Self {
+			continue
+		}
 		st.Reviews = append(st.Reviews, summarize(r))
 	}
 	rank := map[string]int{"judgment": 0, "skim": 1, "clear": 2, "reading": 3, "failed": 4, "done": 5}

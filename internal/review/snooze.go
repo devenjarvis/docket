@@ -139,5 +139,5 @@ func (e *Engine) Unified(now time.Time) []Item {
 		e.saveSnoozesLocked()
 	}
 	e.mu.Unlock()
-	return BuildInbox(st.Viewer, st.Reviews, mine, snoozes, now)
+	return BuildInbox(st.Viewer, st.Reviews, mine, e.selfSummaries(), snoozes, now)
 }

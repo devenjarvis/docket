@@ -70,6 +70,7 @@ func (e *Engine) read(parent context.Context, key string) {
 	e.cancels[key] = cancel
 	r.Status, r.Error = "reading", ""
 	pr := r.PR
+	self := r.Self
 	var previous *model.Review
 	if r.Brief != nil && r.ReadSHA != "" && r.ReadSHA != pr.HeadSHA {
 		cp := *r
@@ -93,6 +94,9 @@ func (e *Engine) read(parent context.Context, key string) {
 	runCode := e.runsIn(repoName)
 	var client *acp.Client
 	entry := ledger.Entry{Kind: ledger.KindRead, Repo: repoName, Number: pr.Number, Agent: agentName, Reread: previous != nil}
+	if self {
+		entry.Kind = ledger.KindSelf
+	}
 	recorded := false
 	defer func() {
 		// A read that ended any way but done is recorded as failed, unless
@@ -124,7 +128,8 @@ func (e *Engine) read(parent context.Context, key string) {
 		paths = append(paths, f.Path)
 	}
 	slice, narrowed := owners.Load(ws.Head).Slice(paths, e.Viewer(), nil)
-	if !narrowed || len(slice) == len(paths) {
+	if self || !narrowed || len(slice) == len(paths) {
+		// The author answers for all of their own change.
 		slice = nil
 	}
 
@@ -147,7 +152,7 @@ func (e *Engine) read(parent context.Context, key string) {
 		"diff.patch": diffText,
 		"pr.json": map[string]any{
 			"repository": pr.Owner + "/" + pr.Repo, "number": pr.Number, "title": pr.Title,
-			"description": pr.Body, "author": pr.Author, "base": pr.BaseRef, "head": pr.HeadRef,
+			"description": pr.Body, "author": pr.Author, "base": pr.BaseRef, "head": pr.HeadRef, "headSha": pr.HeadSHA,
 		},
 		"rules.json": ruleList,
 		"reviewer.json": map[string]any{
@@ -156,6 +161,10 @@ func (e *Engine) read(parent context.Context, key string) {
 			"knowsElsewhere":      elsewhere,
 			"note":                "knowsThisRepository counts reviews done through this tool only; an area that is missing has not been reviewed here.",
 		},
+	}
+	if self {
+		inputs["reviewer.json"] = map[string]any{"login": e.Viewer(), "role": "author",
+			"note": "This is the author's own pull request. They read this brief before anyone reviews it."}
 	}
 	inputs["conversation.json"] = e.conversationFor(ctx, pr)
 	if previous != nil {
@@ -193,7 +202,7 @@ func (e *Engine) read(parent context.Context, key string) {
 	client.SetPolicy(session, acp.ReviewPolicy(ws.Dir, ws.Head, ws.Base, ws.Scratch, ws.Out))
 	h := &handler{runCode: runCode, onActivity: func(s string) { e.setActivity(key, s) }}
 
-	prompt := brief.Prompt(brief.PromptData{Workspace: ws, RunCode: runCode, Slice: slice != nil, Previous: previous != nil})
+	prompt := brief.Prompt(brief.PromptData{Workspace: ws, RunCode: runCode, Slice: slice != nil, Previous: previous != nil, Self: self})
 	var b *model.Brief
 	for attempt := 0; ; attempt++ {
 		entry.Tries = attempt + 1
@@ -257,11 +266,14 @@ func (e *Engine) read(parent context.Context, key string) {
 	r.Posted = nil
 	delete(e.diffs, key+"@"+pr.HeadSHA)
 	sum := summarize(r)
+	// Read under the lock: once it is released, the user's answers change
+	// these.
+	entry.Model, entry.Seconds = r.Model, r.ReadTook
+	entry.Carried, entry.Isolation = len(keep), r.Isolation
 	e.save(r)
 	e.mu.Unlock()
 
-	entry.Model, entry.Seconds, entry.Usage = r.Model, r.ReadTook, client.Usage()
-	entry.Carried, entry.Isolation = len(keep), r.Isolation
+	entry.Usage = client.Usage()
 	entry.NeedLines, entry.TotalLines, entry.Decisions = sum.NeedLines, sum.TotalLines, sum.Decisions
 	for _, c := range b.Claims {
 		switch c.Status {
@@ -281,11 +293,19 @@ func (e *Engine) read(parent context.Context, key string) {
 	recorded = true
 	e.record(entry)
 
-	body := "Nothing needs your judgment."
-	if sum.Decisions > 0 {
-		body = fmt.Sprintf("%d decision%s for you, about %d min.", sum.Decisions, plural(sum.Decisions), max(sum.Minutes, 1))
+	if self {
+		body := "Nothing a reviewer would stop on."
+		if sum.Decisions > 0 {
+			body = fmt.Sprintf("%d finding%s to settle before review.", sum.Decisions, plural(sum.Decisions))
+		}
+		e.notify(config.NotifyRead, fmt.Sprintf("Self-review of %s/%s #%d", pr.Owner, pr.Repo, pr.Number), body, key)
+	} else {
+		body := "Nothing needs your judgment."
+		if sum.Decisions > 0 {
+			body = fmt.Sprintf("%d decision%s for you, about %d min.", sum.Decisions, plural(sum.Decisions), max(sum.Minutes, 1))
+		}
+		e.notify(config.NotifyRead, fmt.Sprintf("%s/%s #%d is ready", pr.Owner, pr.Repo, pr.Number), body, key)
 	}
-	e.notify(config.NotifyRead, fmt.Sprintf("%s/%s #%d is ready", pr.Owner, pr.Repo, pr.Number), body, key)
 	// Earlier heads of this PR are no longer needed.
 	if previous != nil {
 		old := previous.PR

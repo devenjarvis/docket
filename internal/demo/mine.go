@@ -21,7 +21,9 @@ const (
 	ReadyKey    = "acme/payments-api#4133"
 	BlockedKey  = "acme/ledger#318"
 	ConflictKey = "acme/web-app#2230"
-	viewer      = "devenjarvis"
+	// DraftKey is a draft nobody has reviewed yet: what a self-review is for.
+	DraftKey = "acme/payments-api#4140"
+	viewer   = "devenjarvis"
 )
 
 var _ gh.Inbox = GitHub{}
@@ -115,6 +117,14 @@ func seedInbox() *inbox {
 				Additions: 140, Deletions: 131, Files: 11, UpdatedAt: at(5 * time.Hour)},
 			st:     model.MergeState{NodeID: "PR_2230", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY", ReviewDecision: "REVIEW_REQUIRED", Methods: all, HeadRepo: "acme/web-app", RequestedReviewers: []string{"priya-n"}},
 			checks: []model.Check{passed("test", 5*time.Hour)},
+		},
+		{
+			pr: model.PR{Owner: "acme", Repo: "payments-api", Number: 4140, Title: "Retry refunds on gateway timeouts", Author: viewer, Draft: true,
+				Body:    "Refund requests that time out at the gateway are now tried up to three times.\n\n- Nothing changes for a refund that succeeds first time.\n- Covered by new tests.",
+				HeadSHA: "b5e6f7a8c9d01234", BaseSHA: "9f2c1d7a40b1", BaseRef: "main", HeadRef: "deven/refund-retries",
+				Additions: 34, Deletions: 2, Files: 3, UpdatedAt: at(12 * time.Minute)},
+			st:     model.MergeState{NodeID: "PR_4140", Mergeable: "MERGEABLE", MergeStateStatus: "DRAFT", ReviewDecision: "REVIEW_REQUIRED", Methods: []string{"SQUASH", "REBASE"}, AutoMergeAllowed: true, HeadRepo: "acme/payments-api"},
+			checks: []model.Check{passed("test", 10*time.Minute), passed("lint", 10*time.Minute)},
 		},
 	}
 	in.review["acme/payments-api#4127"] = &model.Conversation{

@@ -167,7 +167,8 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 			}
 			dir, out := dirsFromPrompt(prompt)
 			var pr struct {
-				Number int `json:"number"`
+				Number  int    `json:"number"`
+				HeadSHA string `json:"headSha"`
 			}
 			if b, err := os.ReadFile(filepath.Join(dir, "pr.json")); err == nil {
 				_ = json.Unmarshal(b, &pr)
@@ -186,6 +187,9 @@ func ServeAgent(r io.Reader, w io.Writer) error {
 				}
 			}
 			body := fixture(fmt.Sprintf("%d.json", pr.Number))
+			if f := fixedFixture(pr.Number, pr.HeadSHA, "json"); f != "" {
+				body = f
+			}
 			if body == "" {
 				say(p.SessionID, "The demo agent has no brief for this pull request.")
 			} else if _, msg := call("fs/write_text_file", map[string]any{"sessionId": p.SessionID, "path": filepath.Join(out, "brief.json"), "content": body}); msg != "" {
@@ -230,6 +234,13 @@ func tendPlan(number int) string {
 				{"id": "a5", "kind": "reply", "thread": "T_318_2", "stance": "asks", "body": "The interval is hourly for now. Making it configurable means a new setting in the ops config: in this PR, or a follow-up?", "why": "Making it configurable is a design choice, so this asks instead of changing code."},
 			},
 		}
+	case 4140:
+		p = map[string]any{
+			"summary": "One commit answers both findings from your self-review: every attempt now sends an idempotency key made from the refund id, and the debug log is gone.",
+			"actions": []map[string]any{
+				{"id": "a1", "kind": "fix", "commit": commitRefundFix, "tasks": []string{"d1", "d2"}, "why": "Passes the idempotency key to gateway.post on every attempt and removes the console.log. The lost-reply probe now passes, and so do the refund tests."},
+			},
+		}
 	case 2230:
 		p = map[string]any{
 			"summary": "main renamed DatePicker's zone handling while this moved the helpers. I merged main into the branch and kept both changes.",
@@ -248,6 +259,8 @@ func tendPlan(number int) string {
 // on their own; a change to how the cache starts goes to the author.
 func gateAnswer(prompt string) string {
 	switch {
+	case strings.Contains(prompt, "idempotencyKey"):
+		return `{"decision": "ask", "reason": "It changes what is sent to the payment gateway, not only a log line. Worth a look before it goes out."}`
 	case strings.Contains(prompt, "make(map"):
 		return `{"decision": "ask", "reason": "It changes how the cache starts up, not only something a reviewer named. Worth a look."}`
 	case strings.Contains(prompt, "kind: reply"):

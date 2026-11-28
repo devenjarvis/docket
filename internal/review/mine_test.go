@@ -19,7 +19,7 @@ type notes struct {
 // of review requests notify too.
 func (n *notes) add(title, body, key string) {
 	switch key {
-	case demo.ReadyKey, demo.BlockedKey, demo.ConflictKey:
+	case demo.ReadyKey, demo.BlockedKey, demo.ConflictKey, demo.DraftKey:
 	default:
 		return
 	}
@@ -46,7 +46,7 @@ func TestOwnPullRequestsAreWatchedAndActedOn(t *testing.T) {
 	for _, m := range eng.Mine() {
 		lanes[m.PR.Key()] = m.Lane
 	}
-	want := map[string]string{demo.ReadyKey: model.LaneReady, demo.BlockedKey: model.LaneNeedsYou, demo.ConflictKey: model.LaneNeedsYou}
+	want := map[string]string{demo.ReadyKey: model.LaneReady, demo.BlockedKey: model.LaneNeedsYou, demo.ConflictKey: model.LaneNeedsYou, demo.DraftKey: model.LaneNeedsYou}
 	for k, l := range want {
 		if lanes[k] != l {
 			t.Errorf("%s lane = %q, want %q (all: %v)", k, lanes[k], l, lanes)

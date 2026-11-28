@@ -90,6 +90,8 @@ func New(eng *review.Engine, rs *rules.Store, home string) *Server {
 	s.mux.HandleFunc("POST /api/tend", s.tend)
 	s.mux.HandleFunc("POST /api/decide", s.decide)
 	s.mux.HandleFunc("POST /api/undo", s.undo)
+	s.mux.HandleFunc("POST /api/self", s.self)
+	s.mux.HandleFunc("POST /api/handoff", s.handoff)
 	s.settingsRoutes()
 	return s
 }
@@ -156,7 +158,7 @@ func (s *Server) state(w http.ResponseWriter, _ *http.Request) {
 		"agents": agents.Detect(exec.LookPath, ""),
 		"config": map[string]any{
 			"agent": c.Agent, "agentCommand": c.AgentCommand, "pollSeconds": c.Poll(),
-			"theme": c.Theme, "receipt": c.Receipt(), "runCode": c.Runs(), "tend": c.TendMode(),
+			"theme": c.Theme, "receipt": c.Receipt(), "runCode": c.Runs(), "tend": c.TendMode(), "selfReview": c.SelfMode(),
 			"agentPath": nonNil(c.AgentPath), "concurrency": c.Workers(), "notifyOff": nonNil(c.NotifyOff),
 			"prices": c.Prices,
 		},
@@ -429,6 +431,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 		Receipt      *bool                    `json:"receipt"`
 		RunCode      *bool                    `json:"runCode"`
 		Tend         *string                  `json:"tend"`
+		SelfReview   *string                  `json:"selfReview"`
 		AgentPath    *[]string                `json:"agentPath"`
 		Concurrency  *int                     `json:"concurrency"`
 		NotifyOff    *[]string                `json:"notifyOff"`
@@ -501,11 +504,33 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if in.SelfReview != nil {
+		switch *in.SelfReview {
+		case "auto", "ask", "off":
+			c.SelfReview = *in.SelfReview
+		default:
+			fail(w, 400, fmt.Errorf("selfReview must be auto, ask or off"))
+			return
+		}
+	}
 	if err := config.Write(c); err != nil {
 		fail(w, 500, err)
 		return
 	}
+	if in.SelfReview != nil {
+		s.resync()
+	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// resync looks at GitHub again in the background, so a setting that changes
+// what Docket reads takes effect now, not at the next poll.
+func (s *Server) resync() {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		_ = s.Eng.Sync(ctx)
+	}()
 }
 
 // out serves a file the agent saved for a review (a screenshot, a probe).
@@ -642,6 +667,37 @@ func (s *Server) undo(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	if err := s.Eng.Undo(ctx, in.Key, in.Action); err != nil {
+		fail(w, 400, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// self starts a self-review of one of the user's own pull requests, or reads
+// it again.
+func (s *Server) self(w http.ResponseWriter, r *http.Request) {
+	in, ok := read[keyed](w, r)
+	if !ok {
+		return
+	}
+	if err := s.Eng.SelfReview(in.Key); err != nil {
+		fail(w, 400, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handoff settles the findings of a self-review the author chose to fix:
+// "agent" starts a run that makes them, "you" notes they will do it.
+func (s *Server) handoff(w http.ResponseWriter, r *http.Request) {
+	in, ok := read[struct {
+		Key string `json:"key"`
+		By  string `json:"by"`
+	}](w, r)
+	if !ok {
+		return
+	}
+	if err := s.Eng.HandOff(in.Key, in.By); err != nil {
 		fail(w, 400, err)
 		return
 	}

@@ -11,8 +11,8 @@ func TestDemoInboxActionsChangeWhatComesBack(t *testing.T) {
 	ctx := context.Background()
 	g := GitHub{Home: t.TempDir()}
 	mine, err := g.Mine(ctx)
-	if err != nil || len(mine) != 3 {
-		t.Fatalf("mine = %d (%v), want 3", len(mine), err)
+	if err != nil || len(mine) != 4 {
+		t.Fatalf("mine = %d (%v), want 4", len(mine), err)
 	}
 	lanes := map[string]string{}
 	for _, p := range mine {
@@ -26,7 +26,7 @@ func TestDemoInboxActionsChangeWhatComesBack(t *testing.T) {
 		}
 		lanes[p.Key()] = model.LaneOf(model.Blockers("devenjarvis", full.Draft, st, checks, conv))
 	}
-	if lanes[ReadyKey] != model.LaneReady || lanes[BlockedKey] != model.LaneNeedsYou || lanes[ConflictKey] != model.LaneNeedsYou {
+	if lanes[ReadyKey] != model.LaneReady || lanes[BlockedKey] != model.LaneNeedsYou || lanes[ConflictKey] != model.LaneNeedsYou || lanes[DraftKey] != model.LaneNeedsYou {
 		t.Fatalf("lanes = %v", lanes)
 	}
 
@@ -48,7 +48,7 @@ func TestDemoInboxActionsChangeWhatComesBack(t *testing.T) {
 	if err := g.Merge(ctx, ready, "SQUASH", ready.HeadSHA); err != nil {
 		t.Fatal(err)
 	}
-	if mine, _ := g.Mine(ctx); len(mine) != 2 {
+	if mine, _ := g.Mine(ctx); len(mine) != 3 {
 		t.Errorf("a merged pull request is still listed: %d", len(mine))
 	}
 	if _, err := g.FailedLog(ctx, blocked, conv2job(t, g)); err != nil {

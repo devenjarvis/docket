@@ -22,7 +22,7 @@ func jobOf(kind string) string {
 		return JobReading
 	case KindAsk:
 		return JobQuestions
-	case KindTend:
+	case KindTend, KindSelf:
 		return JobMine
 	}
 	return ""
@@ -84,11 +84,15 @@ type Point struct {
 }
 
 type TendReport struct {
-	Runs     int            `json:"runs"`
-	AutoRuns int            `json:"autoRuns"`
-	Failed   int            `json:"failed"`
-	Stopped  int            `json:"stopped"`
-	Outcomes map[string]int `json:"outcomes"`
+	Runs int `json:"runs"`
+	// SelfReviews counts self-reviews of the user's own pull requests, and
+	// SelfFindings what they raised.
+	SelfReviews  int            `json:"selfReviews"`
+	SelfFindings int            `json:"selfFindings"`
+	AutoRuns     int            `json:"autoRuns"`
+	Failed       int            `json:"failed"`
+	Stopped      int            `json:"stopped"`
+	Outcomes     map[string]int `json:"outcomes"`
 	// Held steps, by what held them.
 	Floor  int `json:"floor"`
 	Judged int `json:"judged"`
@@ -286,6 +290,11 @@ func Summarize(all []Entry, from, to time.Time, prices map[string]config.Price) 
 			r.Proved += e.Proved
 			r.Contradicted += e.Contradicted
 			r.Unproven += e.Unproven
+		case KindSelf:
+			if !e.Failed {
+				r.Tend.SelfReviews++
+				r.Tend.SelfFindings += e.Decisions
+			}
 		case KindTend:
 			r.Tend.Runs++
 			if e.Auto {

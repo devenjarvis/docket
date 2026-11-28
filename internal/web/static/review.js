@@ -5,20 +5,32 @@ import { h, get, post, toast, plural, clock, ago, tri, prose, openExternal, byli
 import { beforeAfter } from "./viz.js";
 import { renderConversation } from "./conversation.js";
 import { href, go, refresh, itemHref } from "./app.js";
+import { act } from "./conversation.js";
+import { mineHref } from "./mine.js";
 
 const KIND = { judgment: "Needs you", skim: "Verified, skim", mechanical: "Mechanical, proven" };
 // A claim's status, in a fact-checker's words.
 const CLAIM = { proved: ["True", ""], contradicted: ["False", ".contra"], unproven: ["Can't tell", ".open"], unstated: ["Not said", ".faint"] };
 
+// words are what a sheet calls things: a review for someone else, or a
+// self-review of the user's own pull request, where a decision is a finding
+// and sign-off is the wrap-up.
+const REVIEW_WORDS = { decision: "Decision", decisions: "decision", signoff: "Sign-off", toSignoff: "sign-off",
+  blocking: "Blocks the merge", ask: "Stays open", accept: "Accepts it" };
+const SELF_WORDS = { decision: "Finding", decisions: "finding", signoff: "Wrap up", toSignoff: "wrap up",
+  blocking: "Fix first", ask: "Note for reviewers", accept: "Fine as is" };
+export const words = (v) => (v && v.self ? SELF_WORDS : REVIEW_WORDS);
+
 function sheetsOf(v) {
   const b = v.brief;
   if (!b) return [];
+  const W = words(v);
   const out = [{ sheet: "brief", label: "Brief" }];
   if (b.context) out.push({ sheet: "context", label: "Context" });
   (b.decisions || []).forEach((d, i) => out.push({ sheet: "d", id: d.id, n: i + 1, label: `${i + 1}`, decision: d }));
   out.push({ sheet: "diff", label: "Diff" });
   out.push({ sheet: "conversation", label: "Conversation" });
-  out.push({ sheet: "signoff", label: "Sign-off" });
+  out.push({ sheet: "signoff", label: W.signoff });
   return out;
 }
 // isNew says whether a decision first appeared in this read, after the
@@ -51,7 +63,7 @@ export function reviewKeys(S, e) {
   const to = (j) => { const s = list[j]; if (s) go(href(v.key, s.sheet, s.id)); };
   if (e.key === "n" && S.route.sheet === "signoff") { const r = nextItem(S); if (r) go(itemHref(r)); }
   else if (e.key === "ArrowRight" || e.key === "n") to(i + 1);
-  else if (e.key === "u") { const d = nextOpen(v, S.route.id); if (d) go(href(v.key, "d", d.id)); else toast("Every decision is answered."); }
+  else if (e.key === "u") { const d = nextOpen(v, S.route.id); if (d) go(href(v.key, "d", d.id)); else toast(`Every ${words(v).decisions} is answered.`); }
   else if (e.key === "s") go(href(v.key, "signoff"));
   else if (e.key === "Backspace" && advancedFrom) { e.preventDefault(); const back = advancedFrom; advancedFrom = null; go(back); }
   else if (e.key === "ArrowLeft" || e.key === "p") to(i - 1);
@@ -105,18 +117,19 @@ function advanceAfter(v, d) {
     const n = (id) => v.brief.decisions.findIndex((x) => x.id === id) + 1;
     advancedFrom = here;
     go(to ? href(v.key, "d", to.id) : href(v.key, "signoff"));
-    toast(`${to ? `On to decision ${n(to.id)}` : "Every decision is answered: on to Sign-off"}. Backspace goes back to decision ${n(d.id)}.`);
+    const W = words(v);
+    toast(`${to ? `On to ${W.decisions} ${n(to.id)}` : `Every ${W.decisions} is answered: on to ${W.signoff}`}. Backspace goes back to ${W.decisions} ${n(d.id)}.`);
   }, 400);
 }
 
 // --- frame ------------------------------------------------------------------
 export function renderReview(S) {
-  const v = S.review, p = v.pr, b = v.brief;
+  const v = S.review, p = v.pr, b = v.brief, W = words(v);
   const list = sheetsOf(v), i = at(S, list);
   const head = byline([
     ["", `${p.owner}/${p.repo} #${p.number}`, ".mono"],
     ["", p.title, ".title-fact.narrow-hide"],
-    ["by", p.author, ".narrow-hide"],
+    v.self ? ["", "self-review", ".narrow-hide"] : ["by", p.author, ".narrow-hide"],
     ["read at", v.readSha ? v.readSha.slice(0, 7) : "not yet", ".mono.narrow-hide"],
     ["sheet", list.length ? `${i + 1} of ${list.length}` : "none"],
   ]);
@@ -124,30 +137,34 @@ export function renderReview(S) {
   // Past two decisions, a decision's tab is its triangle alone, so the index
   // keeps to one row; Sign-off is pinned at the right either way.
   const compact = (b && b.decisions || []).length > 2;
-  const tab = (s) => h("a", { href: href(v.key, s.sheet, s.id), "aria-current": s === list[i] ? "page" : null, title: s.decision ? `Decision ${s.n}: ${s.decision.title}` : null,
-    "aria-label": s.decision && compact ? `Decision ${s.n}: ${s.decision.title}` : null, class: s.decision && compact ? "tab-tri" : null },
-  s.decision ? [tri(s.n, !!(v.answers[s.id] && v.answers[s.id].option)), !compact && h("span", { class: "tab-title" }, s.decision.title), newStamp(v, s.id)] : s.label);
+  const tab = (s) => h("a", { href: href(v.key, s.sheet, s.id), "aria-current": s === list[i] ? "page" : null, title: s.decision ? `${W.decision} ${s.n}: ${s.decision.title}` : null,
+    "aria-label": s.decision && compact ? `${W.decision} ${s.n}: ${s.decision.title}` : null, class: s.decision && compact ? "tab-tri" : null },
+  s.decision ? [tri(s.n, !!(v.answers[s.id] && v.answers[s.id].option)), !compact && h("span", { class: "tab-title" }, v.self ? s.decision.headline || s.decision.title : s.decision.title), newStamp(v, s.id)] : s.label);
   const tabs = b && h("nav.sheets", { "aria-label": "Sheets" },
     list.filter((s) => s.sheet !== "signoff").map(tab),
     h("span.spacer"),
     list.filter((s) => s.sheet === "signoff").map(tab),
     h("a", { href: p.url || "#", target: "_blank", rel: "noreferrer", onclick: openExternal }, "On GitHub"),
-    h("a", { href: "#/", onclick: (ev) => { ev.preventDefault(); post("/api/remove", { key: v.key }).then(() => go("#/")); } }, "Remove from the queue"));
+    v.self ? h("a", { href: mineHref(v.key) }, "Your pull request")
+      : h("a", { href: "#/", onclick: (ev) => { ev.preventDefault(); post("/api/remove", { key: v.key }).then(() => go("#/")); } }, "Remove from the queue"));
 
   let body;
   if (!b) body = waiting(v);
   else if (S.route.sheet === "context" && b.context) body = context(v);
   else if (S.route.sheet === "d") body = decision(v, list[i]);
   else if (S.route.sheet === "diff") body = fullDiff(v);
-  else if (S.route.sheet === "signoff") body = signoff(S, v);
+  else if (S.route.sheet === "signoff") body = v.self ? wrapUp(S, v) : signoff(S, v);
   else if (S.route.sheet === "conversation") body = S.conv ? renderConversation(v.key, S.conv, S.st.queue.viewer, v.pr.author, () => refresh(true)) : h("p.muted", "Could not read the conversation.");
   else body = brief(S, v, list);
 
   const banners = [
-    v.summary.pushed && v.status !== "reading" && v.status !== "queued" && h("div.banner.red", "The author pushed since this was read. A fresh read is queued; your answers carry over for every decision that still stands."),
+    v.summary.pushed && v.status !== "reading" && v.status !== "queued" && h("div.banner.red", v.self
+      ? ["You pushed since this was read. Your answers carry over to the next read for every finding that still stands. ", h("button.btn.small", { onclick: () => post("/api/self", { key: v.key }).then(() => refresh(true), (e) => toast(e.message)) }, "Read it again")]
+      : "The author pushed since this was read. A fresh read is queued; your answers carry over for every decision that still stands."),
     b && (v.status === "reading" || v.status === "queued") && h("div.banner", h("span.live"), "Reading again: ", h("span", { "data-activity": v.key }, v.activity || "queued"), ". What you see is the earlier read."),
     b && b.since && h("div.banner", h("b", "Since your last look: "), prose(b.since.summary)),
     v.status === "posted" && v.posted && h("div.banner", `You posted this review ${ago(v.posted.at)} (${v.posted.event.toLowerCase().replace("_", " ")}). `, h("a", { href: v.posted.url, target: "_blank", rel: "noreferrer", onclick: openExternal }, "See it on GitHub")),
+    v.self && b && b.since && (b.since.resolved || []).length > 0 && h("div.banner", `${plural(b.since.resolved.length, "earlier finding")} resolved by the push.`),
   ];
   return h("div.sheet", head, tabs, h("div.body", banners, body, b && pager(v, list, i)));
 }
@@ -155,7 +172,8 @@ export function renderReview(S) {
 function pager(v, list, i) {
   const prev = list[i - 1], cur = list[i];
   let next = list[i + 1];
-  const name = (s) => s.decision ? `Decision ${s.n}` : s.label;
+  const W = words(v);
+  const name = (s) => s.decision ? `${W.decision} ${s.n}` : s.label;
   const link = (s, cls) => h("a.btn" + cls, { href: href(v.key, s.sheet, s.id) }, s === prev ? "← " + name(s) : name(s) + (cls === ".primary" ? " →" : ""));
   // Once every decision is answered, the way forward is Sign-off; Diff and
   // Conversation stay a click away beside it.
@@ -170,7 +188,7 @@ function pager(v, list, i) {
   return h("div.row.rule-top", { class: "spread mid" },
     prev ? link(prev, ".quiet") : h("span"),
     h("span.small.muted", h("span.kbd", "←"), " ", h("span.kbd", "→"), " sheets",
-      open && [" · ", h("span.kbd", "u"), " next open decision"], " · ", h("span.kbd", "s"), " sign-off"),
+      open && [" · ", h("span.kbd", "u"), ` next open ${W.decisions}`], " · ", h("span.kbd", "s"), ` ${W.toSignoff}`),
     h("div.row", { class: "mid" }, aside, next ? link(next, ".primary") : h("span")));
 }
 
@@ -180,7 +198,14 @@ function waiting(v) {
       h("h1.title", "This one could not be read"),
       h("pre.code.out", v.error),
       h("div.row", h("button.btn.primary", { onclick: () => post("/api/reread", { key: v.key }).then(() => refresh(true)) }, "Try again"),
-        h("button.btn.quiet", { onclick: () => post("/api/remove", { key: v.key }).then(() => go("#/")) }, "Remove from the queue")));
+        !v.self && h("button.btn.quiet", { onclick: () => post("/api/remove", { key: v.key }).then(() => go("#/")) }, "Remove from the queue")));
+  }
+  if (v.self) {
+    return h("div.block",
+      h("h1.title", "Your agent is reviewing your pull request"),
+      h("p.lede", "It reads it the way you read other people's: it runs the branch and the commit it forked from side by side, checks what the description claims, holds it to your rulebook, and comes back with what a reviewer would stop on, so you can settle it before anyone else looks."),
+      h("div.pencil", h("div.label", "Now"), h("div", h("span.live"), h("span", { "data-activity": v.key }, v.activity || "Queued"))),
+      h("p.small.muted", "You can leave. Docket tells you when it is ready."));
   }
   return h("div.block",
     h("h1.title", "Your agent is reading this"),
@@ -200,6 +225,10 @@ function brief(S, v, list) {
   const by = (k) => b.sections.filter((s) => s.kind === k).reduce((n, s) => n + s.lines, 0);
   const first = list[1];
   const decN = (id) => b.decisions.findIndex((d) => d.id === id) + 1;
+  const W = words(v);
+  const startLabel = first.sheet === "context" ? "Start with the context" : first.decision ? `Start with ${W.decisions} 1` : "Read the diff";
+  const howMuch = sum.decisions ? `${plural(sum.decisions, W.decisions)}, about ${Math.max(sum.minutes, 1)} min`
+    : v.self ? "Nothing a reviewer would stop on" : "No decisions for you";
 
   return h("div.cols",
     h("div.main",
@@ -207,9 +236,9 @@ function brief(S, v, list) {
         h("h1.title", v.pr.title),
         h("p.lede", prose(b.summary)),
         h("div.row", { class: "mid" },
-          h("a.btn.primary", { href: href(v.key, first.sheet, first.id) }, first.sheet === "context" ? "Start with the context" : first.decision ? "Start with decision 1" : "Read the diff"),
-          fast && h("button.btn", { onclick: () => spotAndApprove(S, v, fast) }, "Spot-check and approve"),
-          h("span.small.muted", sum.decisions ? `${plural(sum.decisions, "decision")}, about ${Math.max(sum.minutes, 1)} min` : "No decisions for you")),
+          v.self && !sum.decisions ? h("a.btn.primary", { href: mineHref(v.key) }, "Back to your pull request") : h("a.btn.primary", { href: href(v.key, first.sheet, first.id) }, startLabel),
+          fast && !v.self && h("button.btn", { onclick: () => spotAndApprove(S, v, fast) }, "Spot-check and approve"),
+          h("span.small.muted", howMuch)),
         fast && fast.el),
 
       h("div.block",
@@ -243,7 +272,10 @@ function brief(S, v, list) {
             h("td.r.num", s.lines)))))))),
 
     h("div.side",
-      h("div.block",
+      v.self ? h("div.block",
+        h("div.label.ink", "Your pull request"),
+        h("div.small", "Your agent reviewed it for you, the way it reviews other people's, before anyone else looks. What you mark to fix goes to your agent; what you explain posts as a note for reviewers."),
+        h("a.small", { href: mineHref(v.key) }, "Checks, conversation and merge")) : h("div.block",
         h("div.label.ink", "Why you are here"),
         h("div", (v.pr.why || []).join(", ") || "added by hand"),
         v.slice && v.slice.length ? h("div.small.muted", `${v.slice.length} of the changed files fall to you by CODEOWNERS. The rest are in sections marked outside your slice.`) : null),
@@ -267,7 +299,7 @@ function brief(S, v, list) {
         h("div.small.muted", { class: "mt" },
           `${v.model || ""}${v.readTookSeconds ? ` · took ${clock(v.readTookSeconds)}` : ""} · ${ago(v.readAt)}. It gives no verdict.`,
           v.isolation === "soft" ? " It used its own tools, so Docket's directory limits were not enforced." : ""),
-        h("button.btn.quiet.small", { class: "mt", onclick: () => post("/api/reread", { key: v.key }).then(() => refresh(true)) }, "Read it again"))));
+        h("button.btn.quiet.small", { class: "mt", onclick: () => post(v.self ? "/api/self" : "/api/reread", { key: v.key }).then(() => refresh(true), (e) => toast(e.message)) }, "Read it again"))));
 }
 
 // spotAndApprove picks one hunk from the sections taken on proof, and once the
@@ -435,14 +467,15 @@ function decision(v, sheet) {
   const why = mine.some((c) => c.status === "contradicted") ? "the description says otherwise"
     : mine.some((c) => c.status === "unproven") ? "the description claims it, nothing proved it"
     : mine.some((c) => c.status === "unstated") ? "the pull request doesn't mention it"
-    : rule ? `your rule ${rule.id} raised it` : "only you can answer it";
+    : rule ? `your rule ${rule.id} raised it` : d.rule === "repo" ? "the repository's conventions" : v.self ? "a reviewer would stop on it" : "only you can answer it";
   const count = v.brief.decisions.length;
   const next = nextOpen(v, d.id);
+  const W = words(v);
   const where = d.anchor && d.anchor.path ? `${d.anchor.path.split("/").pop()}:${d.anchor.line}` : "";
 
   return h("div.layout-spread",
     h("article.feature",
-      h("div.kicker", tri(sheet.n, !!a.option), h("span.label.ink", `Decision ${sheet.n} of ${count} · ${why}`), newStamp(v, d.id)),
+      h("div.kicker", tri(sheet.n, !!a.option), h("span.label.ink", `${W.decision} ${sheet.n} of ${count} · ${why}`), newStamp(v, d.id)),
       d.headline ? [h("h1.headline", d.headline), h("p.statement", prose(d.title))] : h("h1.statement", prose(d.title)),
       h("p.lede", prose(d.detail)),
       beforeAfter(d.beforeAfter, (f) => outURL(v, f)),
@@ -471,11 +504,15 @@ function decision(v, sheet) {
         h("div.block", { class: "gap-u" }, d.options.map((o, i) =>
           h("button.option", { "aria-pressed": String(a.option === o.id), onclick: () => answer(v, d, { option: a.option === o.id ? "" : o.id }) },
             h("span.key", i + 1), h("span", h("b", o.label), h("small", prose(o.detail)),
-              h("span.stamp" + (o.effect === "blocking" ? ".red" : o.effect === "ask" ? ".open" : ""), o.effect === "blocking" ? "Blocks the merge" : o.effect === "ask" ? "Stays open" : "Accepts it"))))),
-        chosen && h("div.block",
-          h("label.label", { for: "comment-" + d.id }, chosen.effect === "accept" ? "A note to post, if you want one" : where ? `Comment on ${where}` : "Comment for the review"),
+              h("span.stamp" + (o.effect === "blocking" ? ".red" : o.effect === "ask" ? ".open" : ""), W[o.effect] || o.effect))))),
+        chosen && !(v.self && chosen.effect === "accept") && h("div.block",
+          h("label.label", { for: "comment-" + d.id }, v.self
+            ? (chosen.effect === "blocking" ? "The fix, as your agent will get it" : where ? `Note for reviewers on ${where}` : "Note for reviewers")
+            : chosen.effect === "accept" ? "A note to post, if you want one" : where ? `Comment on ${where}` : "Comment for the review"),
           comment,
-          h("div.small.muted", (chosen.comment ? "Drafted by the agent. It goes out under your name, so make it yours. " : "") + "Nothing posts until you sign.")),
+          h("div.small.muted", v.self
+            ? (chosen.effect === "blocking" ? "Drafted by the agent. Your agent works from this when you hand it the fixes, or fix it yourself." : "Drafted by the agent. It posts under your name only when you post your notes, so make it yours.")
+            : (chosen.comment ? "Drafted by the agent. It goes out under your name, so make it yours. " : "") + "Nothing posts until you sign.")),
         h("div.block.rule-top", { class: "gap-s" },
           h("div.label", "Ask before you decide"),
           asks.map((q) => h("div.block", { class: "gap-s" }, h("div.small", { class: "strong" }, q.question),
@@ -489,7 +526,7 @@ function decision(v, sheet) {
           h("div.small", { class: "strong" }, d.proposedRule.text),
           h("div", h("button.btn.small", { onclick: makeRule }, "Make it a rule, on trial"))),
         a.option && h("a.btn.primary", { href: next ? href(v.key, "d", next.id) : href(v.key, "signoff") },
-          next ? `Next: decision ${v.brief.decisions.indexOf(next) + 1} →` : "On to sign-off →"),
+          next ? `Next: ${W.decisions} ${v.brief.decisions.indexOf(next) + 1} →` : `On to ${W.toSignoff} →`),
         h("div.small.muted", h("span.kbd", "1"), " to ", h("span.kbd", String(d.options.length)), " choose"))));
 }
 
@@ -541,6 +578,114 @@ function signoff(S, v) {
         h("p.small.muted", "Nobody downstream has to guess whether approved meant read. It posts folded, below your summary, with the time as it stands when you post."))),
 
     h("div.side", verdict(S, v, d, comments, bodyBox)));
+}
+
+// --- wrap up (a self-review's sign-off) -------------------------------------------
+// wrapUp settles what the author decided: fixes go to their agent or to
+// them, notes for reviewers post as one comment review, and nothing is
+// approved. Then the pull request's next move.
+function wrapUp(S, v) {
+  const d = S.draft, b = v.brief, W = words(v);
+  if (!d) return h("p", "Loading");
+  const key = v.key, p = v.pr;
+  const m = (S.st.mine || []).find((x) => `${x.pr.owner}/${x.pr.repo}#${x.pr.number}` === key);
+  const t = m && m.tend;
+  const tendOff = (S.st.config.tend || "auto") === "off";
+  const rows = b.decisions.map((dec, i) => {
+    const a = v.answers[dec.id] || {};
+    return { dec, n: i + 1, a, o: dec.options.find((x) => x.id === a.option) };
+  });
+  const open = rows.filter((r) => !r.o).length;
+  const fixes = rows.filter((r) => r.o && r.o.effect === "blocking");
+  const handed = v.handed && v.handed.sha === v.readSha ? v.handed : null;
+  const posted = v.posted && v.posted.sha === v.readSha ? v.posted : null;
+  const comments = (d.comments || []).map((c) => ({ ...c }));
+  const decN = (id) => b.decisions.findIndex((x) => x.id === id) + 1;
+  const hand = (by, msg) => async (ev) => {
+    const btn = ev.currentTarget;
+    btn.disabled = true;
+    try { await post("/api/handoff", { key, by }); toast(msg); refresh(true); } catch (e) { toast(e.message); btn.disabled = false; }
+  };
+
+  let fixState;
+  if (!fixes.length) fixState = null;
+  else if (handed && handed.by === "you") fixState = h("p.small", "You're fixing these yourself. When you push, Docket reads it again and says which findings the push resolved.");
+  else if (handed) {
+    const held = t ? (t.actions || []).filter((a) => a.state === "waiting").length : 0;
+    fixState = h("div.pencil",
+      h("div.label", "Handed to your agent " + ago(handed.at)),
+      t && t.status === "running" ? h("div", h("span.live"), h("span", { "data-tend": key }, t.activity || "Working")) :
+        held ? h("div", `${plural(held, "step")} ${held === 1 ? "waits" : "wait"} for your OK. `, h("a", { href: mineHref(key) }, "Check it")) :
+          h("div", t && t.summary ? prose(t.summary) : "It's done. ", " ", h("a", { href: mineHref(key) }, "See what it did")),
+      h("div.small.muted", { class: "mt-s" }, "Each commit goes through the same gate as any step on your pull requests. When one is pushed, Docket reads it again."));
+  } else {
+    fixState = h("div.block", { class: "gap-s" },
+      h("div.row", { class: "mid gap-u" },
+        h("button.btn.primary", { disabled: tendOff || null, title: tendOff ? "The agent is off for your pull requests. Turn it on in Settings." : null,
+          onclick: hand("agent", "Your agent is on it.") }, fixes.length === 1 ? "Have the agent fix it" : "Have the agent fix them"),
+        h("button.btn.quiet", { onclick: hand("you", "Noted. Push when you're done; Docket reads it again.") }, "I'll fix them myself")),
+      h("p.small.muted", "Your agent commits on top of your branch. A small, clearly asked fix goes ahead on its own; anything bigger waits for your OK, with an Undo either way."));
+  }
+
+  const confirmRow = h("div.block.hidden", { class: "gap-u well" });
+  const askPost = () => {
+    const inline = comments.filter((c) => c.inline && c.body.trim()).length;
+    confirmRow.replaceChildren(
+      h("div", `Post ${plural(comments.length, "note")} as one comment on your pull request${inline ? `, ${inline} on their lines` : ""}?`),
+      h("div.row", { class: "mid gap-u" },
+        h("button.btn.red", { onclick: (ev) => send(S, v, "COMMENT", "", comments, false, ev) }, "Post notes"),
+        h("button.btn.quiet", { onclick: () => confirmRow.classList.add("hidden") }, "Cancel")));
+    confirmRow.classList.remove("hidden");
+    confirmRow.querySelector("button").focus();
+  };
+
+  const next = nextItem(S);
+  return h("div.cols",
+    h("div.main",
+      h("div.block",
+        h("h1.title", open ? `${plural(open, "finding")} still to settle` : "Wrap up your self-review"),
+        h("p.lede", "What you chose to fix goes to your agent, or stays with you. What you chose to explain posts as notes on your pull request, so reviewers read your reasoning before they have to ask. Nothing here approves anything.")),
+
+      h("div.block", h("div.label.ink", "Your findings"),
+        rows.length ? h("div.scroll-x", h("table.reg", h("tbody", rows.map((r) => h("tr.go", { onclick: () => go(href(key, "d", r.dec.id)) },
+          h("td", { class: "fit" }, tri(r.n, !!r.o)),
+          h("td", h("div", { class: "strong" }, prose(r.dec.headline || r.dec.title), newStamp(v, r.dec.id)), h("div.small.muted", r.o ? `${r.o.label}.` : "Not settled")),
+          h("td.r", { class: "fit" }, !r.o ? h("span.stamp.open", "Open") : h("span.stamp" + (r.o.effect === "blocking" ? ".contra" : r.o.effect === "ask" ? ".open" : ""), W[r.o.effect]))))))) :
+          h("p.muted", "Your agent found nothing a reviewer would stop on.")),
+
+      fixes.length > 0 && h("div.block", h("div.label.ink", `Fix before review · ${fixes.length}`),
+        fixes.map((r) => h("div.block", { class: "gap-s" },
+          h("div.row", { class: "mid gap-u" }, tri(r.n, true), h("span", { class: "strong" }, prose(r.dec.headline || r.dec.title)),
+            r.dec.anchor && r.dec.anchor.path && h("span.small.mono.muted", `${r.dec.anchor.path}:${r.dec.anchor.line}`)),
+          h("div.small", prose(r.a.comment || r.o.comment || r.o.label)))),
+        fixState),
+
+      h("div.block", h("div.label.ink", `Notes for reviewers · ${comments.length}`),
+        comments.map((c) => h("div.block", { class: "gap-s" },
+          h("div.row", { class: "mid gap-u" },
+            c.decision && decN(c.decision) ? tri(decN(c.decision), true) : null,
+            h("span.small.mono.muted", c.inline ? `${c.path}:${c.line}` : "in the comment body")),
+          h("textarea.field", { rows: Math.min(8, 2 + Math.ceil(c.body.length / 90)), value: c.body, "aria-label": "Note", oninput: (e) => { c.body = e.target.value; } }))),
+        !comments.length && h("p.muted", "No notes. A finding you choose to leave and explain becomes one."),
+        posted ? h("div.small", `Posted ${ago(posted.at)}. `, posted.url && h("a", { href: posted.url, target: "_blank", rel: "noreferrer", onclick: openExternal }, "See them on GitHub"))
+          : comments.length > 0 && h("div", h("button.btn", { onclick: askPost }, "Post notes…")),
+        confirmRow),
+
+      (d.warnings || []).length > 0 && h("div.block", { class: "gap-s" }, d.warnings.map((w) => reasonLink(v, w, h("span.small.muted", prose(w.text)))))),
+
+    h("div.side", h("div.yours", { class: "sticky" },
+      h("div.label", "Then"),
+      p.draft && h("button.btn" + (!open && (!fixes.length || handed) ? ".primary" : ""), { onclick: async (ev) => {
+        ev.currentTarget.disabled = true;
+        if (await act(key, { kind: "ready" })) { toast("Marked ready for review."); refresh(true); } else ev.currentTarget.disabled = false;
+      } }, "Mark ready for review"),
+      h("a.btn", { href: mineHref(key) }, "Back to your pull request"),
+      next && h("div.block", { class: "gap-s rule-top" },
+        h("div.label", "Next up"),
+        h("div.small", h("span.mono", `${next.pr.owner}/${next.pr.repo} #${next.pr.number}`), next.mine ? " · yours" : ""),
+        h("div", { class: "strong" }, next.pr.title),
+        h("a.btn.primary", { href: itemHref(next) }, `${next.action} · ${next.minutes} min →`)),
+      h("div.small.muted", "When you push, Docket reads it again and carries your answers over for every finding that still stands."))));
 }
 
 const EVENT = { APPROVE: "Approve", COMMENT: "Comment only", REQUEST_CHANGES: "Request changes" };
@@ -600,7 +745,7 @@ async function send(S, v, event, body, comments, receipt, ev) {
     await post("/api/post", { key: v.key, event, body, comments, receipt });
     S.repost = null;
     S.fast = null;
-    toast("Posted to GitHub.");
+    toast(v.self ? "Your notes are on GitHub." : "Posted to GitHub.");
     // The way on to the next review is on Sign-off.
     if (S.route.sheet !== "signoff") go(href(v.key, "signoff")); else refresh(true);
   } catch (e) {

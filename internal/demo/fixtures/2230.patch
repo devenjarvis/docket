@@ -1,0 +1,14 @@
+diff --git a/src/components/DatePicker.tsx b/src/components/DatePicker.tsx
+index 1a2b3c4..5d6e7f8 100644
+--- a/src/components/DatePicker.tsx
++++ b/src/components/DatePicker.tsx
+@@ -1,4 +1,4 @@
+-import { startOfDay, toUTC } from "./dateUtils";
++import { startOfDay, toUTC } from "../lib/dates";
+ 
+ export function DatePicker(props: Props) {
+   const day = startOfDay(toUTC(props.value, props.zone));
+diff --git a/src/components/dateUtils.ts b/src/lib/dates.ts
+similarity index 100%
+rename from src/components/dateUtils.ts
+rename to src/lib/dates.ts

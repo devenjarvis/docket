@@ -305,8 +305,11 @@ function tendSection(t) {
         ["Held steps, by a fixed rule", t.floor],
         ["Held steps, by the gate's judgment", t.judged],
         ["Stopped after three runs in a row", t.stopped],
+        ["Self-reviews", t.selfReviews || 0],
+        ["Findings they raised", t.selfFindings || 0],
       ]))
-      : h("p.small.muted", "The agent did not work on your pull requests in this period."));
+      : t.selfReviews ? kv([["Self-reviews", t.selfReviews], ["Findings they raised", t.selfFindings || 0]])
+        : h("p.small.muted", "The agent did not work on your pull requests in this period."));
 }
 
 function familiarity(map) {
@@ -434,6 +437,8 @@ function policy(S) {
     try { const r = await post("/api/repo", { repo, ...patch }); S.settings.repos = r.repos; refresh(true); } catch (e) { toast(e.message); }
   };
   const tendLabel = { auto: "Act when safe", ask: "Always ask", off: "Off" };
+  const selfLabel = { auto: "Every push", ask: "When I ask", off: "Off" };
+  const selfMode = c.selfReview || "auto";
   const sel = (label, value, opts, onchange, disabled) => h("select.field", { "aria-label": label, disabled, onchange: (e) => onchange(e.target.value) },
     opts.map(([v, t]) => h("option", { value: v, selected: value === v }, t)));
   const addRepo = h("input.field.mono", { placeholder: "owner/name", "aria-label": "Repository to add" });
@@ -448,14 +453,15 @@ function policy(S) {
         h("span.small.muted", off ? `${plural(off, "repository")} turned off` : "Every repository Docket has met")),
       h("p.small.muted.measure", "Turn Docket off for a repository and it leaves it alone: its pull requests are not read, listed or worked on, and the ones in your queue go. Turning it back on finds them again."),
       h("div.scroll-x", h("table.reg.repos",
-        h("thead", h("tr", h("th", "Repository"), h("th", "Docket"), h("th", "Run code"), h("th", "Agent on your pull requests"), h("th.r", "Signed"))),
+        h("thead", h("tr", h("th", "Repository"), h("th", "Docket"), h("th", "Run code"), h("th", "Agent on your pull requests"), h("th", "Self-review"), h("th.r", "Signed"))),
         h("tbody", repos.length ? repos.map((r) => h("tr", { class: r.off ? "is-off" : null },
           h("td.mono", r.repo, r.open && !r.off ? h("div.small.muted", `${r.open} open now`) : null),
           h("td", sel(`Docket in ${r.repo}`, r.off ? "off" : "on", [["on", "On"], ["off", "Off"]], (v) => setRepo(r.repo, { off: v === "off" }))),
           h("td", sel(`Run code in ${r.repo}`, r.runCode, [["default", `Default (${c.runCode ? "on" : "off"})`], ["on", "On"], ["off", "Off"]], (v) => setRepo(r.repo, { runCode: v }), r.off)),
           h("td", sel(`Agent on your pull requests in ${r.repo}`, r.tend, [["default", `Default (${tendLabel[c.tend].toLowerCase()})`], ...Object.entries(tendLabel)], (v) => setRepo(r.repo, { tend: v }), r.off)),
+          h("td", sel(`Self-review in ${r.repo}`, r.self || "default", [["default", `Default (${selfLabel[selfMode].toLowerCase()})`], ...Object.entries(selfLabel)], (v) => setRepo(r.repo, { self: v }), r.off)),
           h("td.r.num", r.reviews)))
-          : h("tr", h("td", { colspan: 5 }, h("span.small.muted", "No repository yet. Add one below to set it before its first pull request arrives.")))))),
+          : h("tr", h("td", { colspan: 6 }, h("span.small.muted", "No repository yet. Add one below to set it before its first pull request arrives.")))))),
       h("div.row", { class: "one-line gap-u" }, addRepo,
         h("button.btn", { onclick: () => { if (addRepo.value.trim()) setRepo(addRepo.value.trim(), { off: true }); } }, "Turn off"),
         h("button.btn.quiet", { onclick: () => { if (addRepo.value.trim()) setRepo(addRepo.value.trim(), { runCode: "off" }); } }, "Never run its code"))),
@@ -470,6 +476,15 @@ function policy(S) {
           h("span", h("b", label), h("div.small.muted", { class: "measure" }, text)))),
       h("div.pencil.small", h("div.label", "Always held for you"),
         "Dependency manifests and lockfiles, toolchain versions, CI configuration, deleted or skipped tests, more than 60 changed lines, conflict resolutions, and replies that are not agreement or plain information. These are fixed and cannot be turned off.")),
+    h("div.block.rule-top",
+      h("h2.h2", "Self-review"),
+      h("p.lede", "The agent reviews your own pull requests the way it reviews other people's: it says what the change does, checks the description against the code, holds it to your rulebook, and raises what a reviewer would stop on. You settle each finding before anyone else looks: fix it (or hand it to the agent), explain it to reviewers, or leave it."),
+      [["auto", "On every push", "Each new head of a pull request you wrote is read, and your answers carry over for findings that still stand. It costs one read per push, under the same agent and the same run-code setting as reviews."],
+       ["ask", "Only when I ask", "Press Self-review it on a pull request of yours."],
+       ["off", "Off", "Your pull requests are not read."]].map(([v, label, text]) =>
+        h("label.check", { class: "top" },
+          h("input", { type: "radio", name: "self", checked: selfMode === v, onchange: () => save({ selfReview: v }) }),
+          h("span", h("b", label), h("div.small.muted", { class: "measure" }, text))))),
   ];
 }
 

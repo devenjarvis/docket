@@ -80,6 +80,10 @@ func Start(ctx context.Context, opts Options) (*App, error) {
 		c, _ := config.Read()
 		return c.TendIn(repo)
 	}
+	eng.SelfMode = func(repo string) string {
+		c, _ := config.Read()
+		return c.SelfIn(repo)
+	}
 	eng.RepoOff = func(repo string) bool {
 		c, _ := config.Read()
 		return c.RepoOff(repo)

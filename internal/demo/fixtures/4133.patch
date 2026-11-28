@@ -1,0 +1,29 @@
+diff --git a/src/delivery/deliver.ts b/src/delivery/deliver.ts
+index 1c2d3e4..5f6a7b8 100644
+--- a/src/delivery/deliver.ts
++++ b/src/delivery/deliver.ts
+@@ -8,9 +8,10 @@ import { log } from "../log";
+ export async function deliver(hook: Webhook, event: Event): Promise<void> {
+-  log.info("delivering", { hook: hook.id, event: event.id });
++  const requestId = event.requestId;
++  log.info("delivering", { hook: hook.id, event: event.id, requestId });
+   const res = await post(hook.url, event);
+   if (!res.ok) {
+-    log.warn("delivery failed", { hook: hook.id, status: res.status });
++    log.warn("delivery failed", { hook: hook.id, status: res.status, requestId });
+     throw new DeliveryError(res.status);
+   }
+ }
+diff --git a/src/delivery/deliver.test.ts b/src/delivery/deliver.test.ts
+index 2a3b4c5..6d7e8f9 100644
+--- a/src/delivery/deliver.test.ts
++++ b/src/delivery/deliver.test.ts
+@@ -20,3 +20,9 @@ test("throws on a failed delivery", async () => {
+   await expect(deliver(hook, event)).rejects.toThrow(DeliveryError);
+ });
++
++test("every delivery log line carries the request id", async () => {
++  const lines = captureLogs();
++  await deliver(hook, { ...event, requestId: "req_7" }).catch(() => {});
++  expect(lines.every((l) => l.requestId === "req_7")).toBe(true);
++});
