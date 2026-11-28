@@ -131,7 +131,8 @@ export function renderReview(S) {
     list.filter((s) => s.sheet !== "signoff").map(tab),
     h("span.spacer"),
     list.filter((s) => s.sheet === "signoff").map(tab),
-    h("a", { href: p.url || "#", target: "_blank", rel: "noreferrer", onclick: openExternal }, "On GitHub"));
+    h("a", { href: p.url || "#", target: "_blank", rel: "noreferrer", onclick: openExternal }, "On GitHub"),
+    h("a", { href: "#/", onclick: (ev) => { ev.preventDefault(); post("/api/remove", { key: v.key }).then(() => go("#/")); } }, "Remove from the queue"));
 
   let body;
   if (!b) body = waiting(v);

@@ -3,16 +3,19 @@ package review_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/devenjarvis/docket/internal/demo"
 	"github.com/devenjarvis/docket/internal/gh"
 	"github.com/devenjarvis/docket/internal/model"
+	"github.com/devenjarvis/docket/internal/repo"
 	"github.com/devenjarvis/docket/internal/review"
 	"github.com/devenjarvis/docket/internal/rules"
 )
@@ -203,4 +206,107 @@ func containsRule(rs []model.Rule, id string) bool {
 		}
 	}
 	return false
+}
+
+// closingGitHub is the demo GitHub, except that the PRs in merged have left
+// the search results and read back as merged.
+type closingGitHub struct {
+	demo.GitHub
+	mu     sync.Mutex
+	merged map[string]bool
+	hidden map[string]bool
+	broken map[string]bool
+}
+
+func (g *closingGitHub) Assigned(ctx context.Context) ([]model.PR, error) {
+	all, err := g.GitHub.Assigned(ctx)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var out []model.PR
+	for _, p := range all {
+		if !g.merged[p.Key()] && !g.hidden[p.Key()] {
+			out = append(out, p)
+		}
+	}
+	return out, err
+}
+
+func (g *closingGitHub) PR(ctx context.Context, owner, repo string, n int) (model.PR, error) {
+	p, err := g.GitHub.PR(ctx, owner, repo, n)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.broken[model.Key(owner, repo, n)] {
+		return model.PR{}, errors.New("GitHub is down")
+	}
+	if err == nil && g.merged[p.Key()] {
+		p.State = "merged"
+	}
+	return p, err
+}
+
+func TestMergedPullRequestsLeaveTheQueue(t *testing.T) {
+	// merged and unknown are added by hand. answered reaches the queue from
+	// GitHub's search, and the queue keeps it after it leaves for its answers.
+	const merged, unknown, answered = "acme/ledger#311", "acme/web-app#2214", "acme/payments-api#4127"
+	fake := &closingGitHub{merged: map[string]bool{}, broken: map[string]bool{},
+		hidden: map[string]bool{merged: true, unknown: true}}
+	var logMu sync.Mutex
+	var logged []string
+	eng, home := start(t, func(e *review.Engine, home string) {
+		fake.GitHub = demo.GitHub{Home: home}
+		e.GH = fake
+		e.Logf = func(format string, args ...any) {
+			logMu.Lock()
+			defer logMu.Unlock()
+			logged = append(logged, fmt.Sprintf(format, args...))
+		}
+	})
+	ctx := context.Background()
+	for _, ref := range []string{merged, unknown} {
+		if _, err := eng.Add(ctx, ref); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gone := waitReady(t, eng, merged)
+	waitReady(t, eng, unknown)
+	waitReady(t, eng, answered)
+	if err := eng.SetAnswer(answered, "d1", model.Answer{Option: "block"}); err != nil {
+		t.Fatal(err)
+	}
+	checkout := repo.Layout(home, gone.PR).Dir
+	if _, err := os.Stat(checkout); err != nil {
+		t.Fatalf("the checkout of %s was never made: %v", merged, err)
+	}
+
+	fake.mu.Lock()
+	fake.merged[merged] = true
+	fake.broken[unknown] = true
+	fake.hidden[answered] = true
+	fake.mu.Unlock()
+	if err := eng.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := eng.Get(merged); ok {
+		t.Errorf("%s is merged but is still in the queue", merged)
+	}
+	if _, err := os.Stat(filepath.Join(home, "state", "acme__ledger__311.json")); !os.IsNotExist(err) {
+		t.Errorf("the state file of %s is still there (%v)", merged, err)
+	}
+	if _, err := os.Stat(checkout); !os.IsNotExist(err) {
+		t.Errorf("the checkout of %s is still there (%v)", merged, err)
+	}
+	if v, ok := eng.Get(answered); !ok {
+		t.Errorf("%s is still open but left the queue", answered)
+	} else if a := v.Answers["d1"]; a.Option != "block" || len(v.Answers) != 1 {
+		t.Errorf("the answers of %s changed: %+v", answered, v.Answers)
+	}
+	if _, ok := eng.Get(unknown); !ok {
+		t.Errorf("%s left the queue although GitHub could not say whether it is open", unknown)
+	}
+	logMu.Lock()
+	defer logMu.Unlock()
+	if !strings.Contains(strings.Join(logged, "\n"), "could not check whether "+unknown+" is still open") {
+		t.Errorf("the failed check of %s was not logged: %q", unknown, logged)
+	}
 }

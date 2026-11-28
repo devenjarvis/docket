@@ -156,6 +156,7 @@ func (c CLI) PR(ctx context.Context, owner, repo string, number int) (model.PR, 
 		HTMLURL   string    `json:"html_url"`
 		Draft     bool      `json:"draft"`
 		State     string    `json:"state"`
+		Merged    bool      `json:"merged"`
 		Additions int       `json:"additions"`
 		Deletions int       `json:"deletions"`
 		Changed   int       `json:"changed_files"`
@@ -175,9 +176,13 @@ func (c CLI) PR(ctx context.Context, owner, repo string, number int) (model.PR, 
 	if err := c.api(ctx, nil, &p, fmt.Sprintf("repos/%s/%s/pulls/%d", owner, repo, number)); err != nil {
 		return model.PR{}, err
 	}
+	state := p.State
+	if p.Merged {
+		state = "merged"
+	}
 	return model.PR{
 		Owner: owner, Repo: repo, Number: p.Number, Title: p.Title, Body: p.Body,
-		Author: p.User.Login, URL: p.HTMLURL, Draft: p.Draft, UpdatedAt: p.UpdatedAt,
+		Author: p.User.Login, URL: p.HTMLURL, Draft: p.Draft, State: state, UpdatedAt: p.UpdatedAt,
 		HeadSHA: p.Head.SHA, HeadRef: p.Head.Ref, BaseSHA: p.Base.SHA, BaseRef: p.Base.Ref,
 		Additions: p.Additions, Deletions: p.Deletions, Files: p.Changed,
 	}, nil
