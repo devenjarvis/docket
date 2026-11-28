@@ -12,7 +12,10 @@ Docket never calls a model itself. It starts the agent you already use (Claude C
 mise run demo            # sample pull requests and a scripted agent, in a browser
 mise run serve           # your real pull requests, in a browser (http://127.0.0.1:4127)
 mise run app && ./docket # the desktop app (Wails 3)
+mise run mac             # on macOS: the desktop app as dist/Docket.app, with notifications
 ```
+
+On macOS, desktop notifications only work from the app bundle: macOS will not let a bare binary post them. `mise run bundle` builds `dist/Docket.app` (ad hoc signed, for your own Mac) and `mise run mac` also opens it. The first notification asks for permission. If none arrive, `~/.docket/docket.log` says why after `system notifications are off:`.
 
 The tasks live in `mise.toml`; [mise](https://mise.jdx.dev) installs the Go version it pins (`mise install`). You need `git`, `gh` (signed in: `gh auth login`) and one ACP agent on your PATH. The desktop build needs cgo; on Linux also `libgtk-4-dev libwebkitgtk-6.0-dev`.
 

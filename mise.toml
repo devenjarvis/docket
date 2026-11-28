@@ -26,3 +26,12 @@ run = ["go test ./...", "go vet -tags desktop ./..."]
 [tasks.vet]
 description = "Vet the code"
 run = "go vet ./..."
+
+[tasks.bundle]
+description = "Build dist/Docket.app, the desktop app as a macOS app bundle (needed for notifications)"
+run = "scripts/macos-bundle.sh"
+
+[tasks.mac]
+description = "Build dist/Docket.app and open it"
+depends = ["bundle"]
+run = "open dist/Docket.app"
