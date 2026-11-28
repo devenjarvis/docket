@@ -9,14 +9,14 @@ Docket never calls a model itself. It starts the agent you already use (Claude C
 ## Run it
 
 ```bash
-make demo            # sample pull requests and a scripted agent, in a browser
-make serve           # your real pull requests, in a browser (http://127.0.0.1:4127)
-make app && ./docket # the desktop app (Wails 3)
+mise run demo            # sample pull requests and a scripted agent, in a browser
+mise run serve           # your real pull requests, in a browser (http://127.0.0.1:4127)
+mise run app && ./docket # the desktop app (Wails 3)
 ```
 
-You need `git`, `gh` (signed in: `gh auth login`) and one ACP agent on your PATH. The desktop build needs cgo; on Linux also `libgtk-4-dev libwebkitgtk-6.0-dev`.
+The tasks live in `mise.toml`; [mise](https://mise.jdx.dev) installs the Go version it pins (`mise install`). You need `git`, `gh` (signed in: `gh auth login`) and one ACP agent on your PATH. The desktop build needs cgo; on Linux also `libgtk-4-dev libwebkitgtk-6.0-dev`.
 
-`make demo` needs none of that and shows the whole loop.
+`mise run demo` needs none of that and shows the whole loop.
 
 ## The loop
 

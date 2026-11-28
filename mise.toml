@@ -1,0 +1,28 @@
+# Docket's toolchain and tasks. Run `mise tasks` to list them, `mise run <task>`
+# (or `mise <task>`) to run one. The desktop app needs cgo; on Linux it also
+# needs the GTK4 and WebKitGTK 6.0 development packages
+# (libgtk-4-dev libwebkitgtk-6.0-dev).
+
+[tools]
+go = "1.26"
+
+[tasks.app]
+description = "Build the desktop app (Wails 3) as ./docket"
+env = { CGO_ENABLED = "1" }
+run = "go build -tags desktop,production -o docket ."
+
+[tasks.serve]
+description = "Your real pull requests, in a browser (http://127.0.0.1:4127)"
+run = "go run . serve"
+
+[tasks.demo]
+description = "Sample pull requests and a scripted agent, in a browser"
+run = "go run . demo"
+
+[tasks.test]
+description = "Run the tests and vet the desktop build"
+run = ["go test ./...", "go vet -tags desktop ./..."]
+
+[tasks.vet]
+description = "Vet the code"
+run = "go vet ./..."
