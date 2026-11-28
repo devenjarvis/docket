@@ -72,6 +72,7 @@ func New(eng *review.Engine, rs *rules.Store, home string) *Server {
 	s.mux.HandleFunc("POST /api/add", s.add)
 	s.mux.HandleFunc("POST /api/reread", s.reread)
 	s.mux.HandleFunc("POST /api/remove", s.remove)
+	s.mux.HandleFunc("POST /api/snooze", s.snooze)
 	s.mux.HandleFunc("POST /api/answer", s.answer)
 	s.mux.HandleFunc("POST /api/time", s.time)
 	s.mux.HandleFunc("POST /api/audit", s.audit)
@@ -150,7 +151,7 @@ func (s *Server) state(w http.ResponseWriter, _ *http.Request) {
 	queue, mine := s.Eng.List(), s.Eng.Mine()
 	writeJSON(w, map[string]any{
 		"queue":  queue,
-		"inbox":  review.BuildInbox(queue.Viewer, queue.Reviews, mine, time.Now()),
+		"inbox":  s.Eng.Unified(time.Now()),
 		"agent":  map[string]any{"command": cmd, "name": name},
 		"agents": agents.Detect(exec.LookPath, ""),
 		"config": map[string]any{
@@ -262,6 +263,23 @@ func (s *Server) remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Eng.Remove(in.Key)
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// snooze puts a pull request aside: until it changes, until tomorrow, or,
+// with no kind, not any more.
+func (s *Server) snooze(w http.ResponseWriter, r *http.Request) {
+	in, ok := read[struct {
+		Key  string `json:"key"`
+		Kind string `json:"kind"`
+	}](w, r)
+	if !ok {
+		return
+	}
+	if err := s.Eng.SnoozeKey(in.Key, in.Kind, time.Now()); err != nil {
+		fail(w, 400, err)
+		return
+	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
 

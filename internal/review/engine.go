@@ -77,6 +77,8 @@ type Engine struct {
 	mineErr  string
 	tending  map[string]bool
 	runCtx   context.Context
+	// snoozes is what the user put aside, by key; nil until first loaded.
+	snoozes map[string]Snooze
 }
 
 // New loads saved reviews from home.

@@ -51,7 +51,7 @@ func TestInboxBandsAndOrder(t *testing.T) {
 		own(10, model.LaneReady, time.Hour), // quick: merge
 		own(11, model.LaneNeedsYou, time.Hour, model.Blocker{Kind: model.BlockConflicts, Text: "It conflicts.", OnYou: true}),
 	}
-	got := keys(BuildInbox("me", reviews, mine, inboxNow))
+	got := keys(BuildInbox("me", reviews, mine, nil, inboxNow))
 	want := []string{"o/r#3", "o/r#10", "o/r#4", "o/r#11", "o/r#1", "o/r#2"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("order:\n got %v\nwant %v", got, want)
@@ -65,7 +65,7 @@ func TestInboxReviewerOfYoursComesFirst(t *testing.T) {
 		rev(1, "ben", "judgment", 4, 1, 0, 2*time.Hour),
 		rev(2, "ana", "judgment", 20, 1, 0, time.Hour),
 	}
-	items := BuildInbox("me", reviews, []model.Mine{m}, inboxNow)
+	items := BuildInbox("me", reviews, []model.Mine{m}, nil, inboxNow)
 	if items[0].PR.Number != 2 {
 		t.Fatalf("ana's review should lead, got %v", keys(items))
 	}
@@ -78,7 +78,7 @@ func TestInboxNudgeAfterTwoDays(t *testing.T) {
 	fresh := own(30, model.LaneWaiting, 5*time.Hour, model.Blocker{Kind: model.BlockReviewRequired, Text: "x"})
 	stale := own(31, model.LaneWaiting, 72*time.Hour, model.Blocker{Kind: model.BlockReviewRequired, Text: "x"})
 	stale.State.RequestedReviewers = []string{"dmitri"}
-	items := BuildInbox("me", nil, []model.Mine{fresh, stale}, inboxNow)
+	items := BuildInbox("me", nil, []model.Mine{fresh, stale}, nil, inboxNow)
 	f, s := find(t, items, 30), find(t, items, 31)
 	if f.Band != BandWaiting || f.Status != "Waiting for review" {
 		t.Errorf("fresh: band %q status %q", f.Band, f.Status)
@@ -99,7 +99,7 @@ func TestInboxAgentWork(t *testing.T) {
 	}}
 	running := own(41, model.LaneNeedsYou, time.Hour, model.Blocker{Kind: model.BlockChecksFailing, Text: "1 check failing.", OnYou: true})
 	running.Tend = &model.Tend{Status: "running", Activity: "Running the tests"}
-	items := BuildInbox("me", nil, []model.Mine{held, running}, inboxNow)
+	items := BuildInbox("me", nil, []model.Mine{held, running}, nil, inboxNow)
 	h, r := find(t, items, 40), find(t, items, 41)
 	if h.Band != BandQuick || h.Action != "Check fix" || !strings.Contains(h.Why, "It changes a config default.") {
 		t.Errorf("held: %+v", h)
@@ -116,7 +116,7 @@ func TestInboxReviewStates(t *testing.T) {
 	reading := rev(3, "chen", "reading", 0, 0, 0, time.Hour)
 	reread := rev(4, "dmitri", "judgment", 9, 2, 2, time.Hour)
 	reread.Reread = true
-	items := BuildInbox("me", []Summary{posted, failed, reading, reread}, nil, inboxNow)
+	items := BuildInbox("me", []Summary{posted, failed, reading, reread}, nil, nil, inboxNow)
 	if it := find(t, items, 1); it.Band != BandDone {
 		t.Errorf("posted band %q", it.Band)
 	}
@@ -137,8 +137,50 @@ func TestInboxChangesRequestedNamesReviewer(t *testing.T) {
 		{Author: "ana", State: "APPROVED", At: inboxNow.Add(-2 * time.Hour)},
 		{Author: "ben", State: "CHANGES_REQUESTED", At: inboxNow.Add(-time.Hour)},
 	}
-	it := find(t, BuildInbox("me", nil, []model.Mine{m}, inboxNow), 50)
+	it := find(t, BuildInbox("me", nil, []model.Mine{m}, nil, inboxNow), 50)
 	if it.Action != "Respond" || it.Waiter != "ben" || it.Why != "ben asked for changes." {
 		t.Errorf("%+v", it)
+	}
+}
+
+func TestSnoozeWakes(t *testing.T) {
+	pr := model.PR{HeadSHA: "a", UpdatedAt: inboxNow}
+	change := Snooze{Kind: SnoozeChange, Head: "a", Updated: inboxNow}
+	if change.Awake(pr, inboxNow.Add(time.Hour)) {
+		t.Error("a change snooze woke with nothing changed")
+	}
+	if !change.Awake(model.PR{HeadSHA: "b", UpdatedAt: inboxNow}, inboxNow) {
+		t.Error("a change snooze slept through a push")
+	}
+	if !change.Awake(model.PR{HeadSHA: "a", UpdatedAt: inboxNow.Add(time.Minute)}, inboxNow) {
+		t.Error("a change snooze slept through a comment")
+	}
+	until := tomorrowMorning(inboxNow)
+	if until.Day() != inboxNow.Day()+1 || until.Hour() != 8 {
+		t.Errorf("tomorrow morning = %v", until)
+	}
+	tomorrow := Snooze{Kind: SnoozeTomorrow, Until: until}
+	if tomorrow.Awake(pr, until.Add(-time.Minute)) || !tomorrow.Awake(pr, until) {
+		t.Error("a tomorrow snooze ends at 8 the next morning")
+	}
+}
+
+func TestInboxSnoozedRowsWait(t *testing.T) {
+	r := rev(1, "ana", "judgment", 5, 1, 0, time.Hour)
+	m := own(2, model.LaneReady, time.Hour)
+	snoozes := map[string]Snooze{
+		r.Key:      {Kind: SnoozeTomorrow, Until: inboxNow.Add(time.Hour)},
+		m.PR.Key(): {Kind: SnoozeChange, Updated: m.PR.UpdatedAt},
+	}
+	items := BuildInbox("me", []Summary{r}, []model.Mine{m}, snoozes, inboxNow)
+	for _, it := range items {
+		if it.Band != BandWaiting || it.Status != "Snoozed" || it.Snoozed == "" {
+			t.Errorf("#%d: %+v", it.PR.Number, it)
+		}
+	}
+	// Once tomorrow comes, the review is back where it was.
+	items = BuildInbox("me", []Summary{r}, nil, snoozes, inboxNow.Add(2*time.Hour))
+	if items[0].Band != BandCloser || items[0].Snoozed != "" {
+		t.Errorf("after the snooze: %+v", items[0])
 	}
 }

@@ -486,6 +486,7 @@ table.reg.inbox tbody:first-of-type tr.bandrow td { padding-top: var(--u); }
 .bandrow .h2 { display: inline; margin-right: calc(var(--u) * 1.5); }
 /* the row's action: red, because it is the user's to do */
 .move-btn { width: 100%; justify-content: flex-start; }
+.snooze-btn { width: 100%; justify-content: flex-start; margin-top: calc(var(--u) / 2); }
 /* why a row sits where it does: Docket's reasoning, so a pencil rule */
 .why { margin-top: calc(var(--u) * 0.75); padding-left: var(--u); border-left: 1px dashed var(--pencil); color: var(--text-2); font-size: 13px; }
 /* rows past the time the user set recede */
@@ -525,7 +526,8 @@ table.reg.inbox tr.cut td { padding: 0; border-bottom: 0; }
   table.reg.inbox tr.go { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--u) calc(var(--u) * 1.5); padding: calc(var(--u) * 1.5) 0; border-bottom: 1px solid var(--hair); }
   table.reg.inbox tr.go td { padding: 0; border: 0; }
   table.reg.inbox tr.go td:nth-child(1), table.reg.inbox tr.go td:nth-child(2) { grid-column: 1 / -1; }
-  table.reg.inbox .move-btn { width: auto; }
+  table.reg.inbox .move-btn, table.reg.inbox .snooze-btn { width: auto; }
+  table.reg.inbox .snooze-btn { margin: 0 0 0 var(--u); }
   table.reg.inbox tr.go.past { background: var(--sunk); }
   table.reg.inbox tr.go.past td { background: transparent; }
   table.reg.inbox tr.expand td:first-child { display: none; }

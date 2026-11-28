@@ -44,6 +44,8 @@ type Item struct {
 	Activity  string `json:"activity,omitempty"`
 	Decisions int    `json:"decisions,omitempty"`
 	Answered  int    `json:"answered,omitempty"`
+	// Snoozed is the snooze's kind while the user has it put aside.
+	Snoozed string `json:"snoozed,omitempty"`
 
 	// tier orders rows inside a band: 0 merges on the user's move, 1 the
 	// author is reviewing one of the user's, 2 someone has waited over a
@@ -63,8 +65,9 @@ const nudgeAfter = 48 * time.Hour
 // or unblock someone, then what needs a closer look, then what only needs a
 // skim. Inside a band, a row that merges on the user's move comes first, then
 // one whose author is reviewing the user's own work, then anyone who has
-// waited over a day, then the shortest, then the oldest.
-func BuildInbox(viewer string, reviews []Summary, mine []model.Mine, now time.Time) []Item {
+// waited over a day, then the shortest, then the oldest. A snoozed row waits
+// with the others until its snooze is over.
+func BuildInbox(viewer string, reviews []Summary, mine []model.Mine, snoozes map[string]Snooze, now time.Time) []Item {
 	// Who is reviewing the user's own pull requests, and on which one.
 	reviewing := map[string]int{}
 	for _, m := range mine {
@@ -88,6 +91,19 @@ func BuildInbox(viewer string, reviews []Summary, mine []model.Mine, now time.Ti
 	}
 	for _, m := range mine {
 		out = append(out, mineItem(viewer, m, now))
+	}
+	for i := range out {
+		it := &out[i]
+		z, ok := snoozes[it.Key]
+		if !ok || it.Band == BandDone || z.Awake(it.PR, now) {
+			continue
+		}
+		it.Band, it.Status, it.Snoozed, it.Live = BandWaiting, "Snoozed", z.Kind, false
+		if z.Kind == SnoozeTomorrow {
+			it.Why = "Snoozed until tomorrow morning."
+		} else {
+			it.Why = "Snoozed until it has new commits or comments."
+		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]

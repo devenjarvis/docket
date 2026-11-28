@@ -28,7 +28,7 @@ Reviews you were asked for and your own pull requests share one list, sorted by 
 
 Inside each group, a row that merges on your action comes first, then a review by someone who is reviewing one of yours, then anyone who has waited more than a day, then the shortest, then the oldest. Pick how much time you have (15 minutes, 30, an hour, or all of it) and a line shows where it runs out. Once you post a review, the sign-off sheet takes you to whatever is next, review or not.
 
-What the agent, CI or other reviewers have is under **Waiting on others**, and the reviews you posted under **Reviewed**.
+**Snooze** a row (or press `s` on it) to put it aside until the pull request has new commits or comments, or until 8 the next morning. It waits under **Waiting on others** with what the agent, CI or other reviewers have, and you can wake it there. The reviews you posted are under **Reviewed**.
 
 ## The loop
 
@@ -100,6 +100,7 @@ Everything is under `~/.docket` (`DOCKET_HOME` to move it):
 | `reviews/<owner>/<repo>/<n>/<sha>/` | The checkouts, the diff, the agent's probes (`out/`). Removed once the pull request leaves your queue, or once a newer head has been read |
 | `repos/` | Blobless bare clones |
 | `map.json` | Which parts of which repositories you have reviewed, and when |
+| `snoozed.json` | What you snoozed, and until when |
 | `config.json` | Agent, poll interval, concurrency, run-code, receipt, notifications, model prices, agent-on-your-pull-requests, and per-repository settings |
 | `ledger.jsonl` | One line per read, question, posted review, run and step, with the tokens and cost the agent reported: what Metrics is drawn from |
 | `docket.log` | What Docket did and what failed, with times; the previous one is `docket.log.1` |

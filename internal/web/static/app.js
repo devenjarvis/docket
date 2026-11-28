@@ -96,7 +96,7 @@ const BANDS = {
   quick: ["Quick", "A minute or two each. Clearing these gets things merged."],
   closer: ["Needs a closer look", "Reviews with questions for you, and fixes only you can make."],
   skim: ["Skim and approve", "Nothing to decide, and nobody is blocked on these."],
-  waiting: ["Waiting on others", "Your agent, CI or a reviewer has these. They come back up when they need you."],
+  waiting: ["Waiting on others", "Your agent, CI or a reviewer has these, or you snoozed them. They come back up when they need you."],
   done: ["Reviewed", "Reviews you posted. They leave once the pull request closes."],
 };
 const TODO = ["quick", "closer", "skim"];
@@ -135,14 +135,33 @@ function pullRef(it) {
 
 function inboxRow(it, past, open) {
   const go2 = () => go(itemHref(it));
-  const tr = h("tr.go" + (past ? ".past" : ""), { tabindex: 0, onclick: go2, onkeydown: (e) => { if (e.key === "Enter") go2(); } },
-    h("td", h("button.btn.red.small.move-btn", {
-      onclick: (e) => { e.stopPropagation(); it.action === "Merge" && it.mine ? open(it) : go2(); },
-    }, it.action)),
+  const tr = h("tr.go" + (past ? ".past" : ""), { tabindex: 0, "data-key": it.key, onclick: go2, onkeydown: (e) => { if (e.key === "Enter") go2(); } },
+    h("td",
+      h("button.btn.red.small.move-btn", {
+        onclick: (e) => { e.stopPropagation(); it.action === "Merge" && it.mine ? open(it, "merge") : go2(); },
+      }, it.action),
+      h("button.btn.quiet.small.snooze-btn", { onclick: (e) => { e.stopPropagation(); open(it, "snooze"); } }, "Snooze")),
     h("td", pullRef(it), h("div", { class: "item-title" }, it.pr.title), h("div.why", it.why)),
     h("td.r.num", `${it.minutes} min`),
     h("td.r.small.muted", ago(it.since).replace(" ago", "")));
   return tr;
+}
+
+// snoozeRow opens under a row to put it aside until it changes or until
+// tomorrow morning.
+function snoozeRow(it, close) {
+  const snooze = (kind) => async (e) => {
+    e.currentTarget.disabled = true;
+    try { await post("/api/snooze", { key: it.key, kind }); toast(kind === "tomorrow" ? "Snoozed until tomorrow morning." : "Snoozed until it changes."); close(); }
+    catch (err) { toast(err.message); e.currentTarget.disabled = false; }
+  };
+  return h("tr.expand", h("td"), h("td", { colspan: 3 },
+    h("div.row", { class: "mid gap-u" },
+      h("span", "Snooze it"),
+      h("button.btn.small", { onclick: snooze("change") }, "Until it changes"),
+      h("button.btn.small", { onclick: snooze("tomorrow") }, "Until tomorrow"),
+      h("button.btn.quiet.small", { onclick: close }, "Cancel"),
+      h("span.small.muted", "It waits with the others, and comes back on its own."))));
 }
 
 // mergeRow is the confirm that opens under a Merge row, so a pull request
@@ -179,7 +198,7 @@ function register(items, opts) {
       }
       sum += it.minutes;
       rows.push(inboxRow(it, cutDone, open));
-      if (opened === it.key) rows.push(mergeRow(it, () => open(null)));
+      if (opened && opened.key === it.key) rows.push((opened.kind === "snooze" ? snoozeRow : mergeRow)(it, () => open(null)));
     }
     return h("tbody", rows);
   });
@@ -199,12 +218,17 @@ function others(items, band) {
       h("thead", h("tr", h("th", "Pull request"), h("th", "Status"), h("th", "What's happening"), h("th.r", "Updated"))),
       h("tbody", list.map((it) => h("tr.go", { tabindex: 0, onclick: () => go(itemHref(it)), onkeydown: (e) => { if (e.key === "Enter") go(itemHref(it)); } },
         h("td", pullRef(it), h("div", { class: "item-title" }, it.pr.title)),
-        h("td", it.live && h("span.live"), h("span.stamp.sm" + (it.band === "done" ? ".solid" : ".open"), it.status || "Posted")),
+        h("td", it.live && h("span.live"), h("span.stamp.sm" + (it.band === "done" ? ".solid" : it.snoozed ? ".faint" : ".open"), it.status || "Posted"),
+          it.snoozed && h("div", { class: "mt" }, h("button.btn.small", { onclick: async (e) => {
+            e.stopPropagation();
+            try { await post("/api/snooze", { key: it.key, kind: "" }); toast("Back in the inbox."); refresh(true); } catch (err) { toast(err.message); }
+          } }, "Wake it now"))),
         h("td.small.text-2", it.live && it.activity ? h("span", { "data-activity": it.key }, it.activity) : it.why),
         h("td.r.small.muted", ago(it.band === "done" ? it.since : it.pr.updatedAt))))))));
 }
 
-let openedMerge = null;
+// opened is the row with a confirm open under it: { key, kind }.
+let opened = null;
 
 function queue(tab) {
   const q = S.st.queue, all = S.st.inbox || [], list = todo();
@@ -224,7 +248,7 @@ function queue(tab) {
   addInput.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
 
   const setBudget = (m) => { try { localStorage.setItem("docket-budget", String(m)); } catch (e) { /* no storage */ } render(); };
-  const open = (it) => { openedMerge = it ? it.key : null; render(); };
+  const open = (it, kind) => { opened = it ? { key: it.key, kind } : null; render(); };
 
   let body;
   if (tab === "waiting") body = others(all, "waiting");
@@ -243,7 +267,7 @@ function queue(tab) {
         h("div.seg", { role: "group", "aria-label": "Time you have" },
           BUDGETS.map(([m, label]) => h("button", { "aria-pressed": String(m === b), onclick: () => setBudget(m) }, label)))),
       h("button.btn.primary", { onclick: () => go(itemHref(list[0])) }, `Start: ${list[0].action} #${list[0].pr.number}`)),
-    list.length > 0 ? register(list, { cut: b, opened: openedMerge, open, bands: TODO })
+    list.length > 0 ? register(list, { cut: b, opened, open, bands: TODO })
       : h("div.block", h("h2.h2", "Nothing to do"),
         h("p.lede", "Review requests, and your own pull requests when they need something from you, show up here on their own.")),
   ];
@@ -256,7 +280,7 @@ function queue(tab) {
     body,
     h("div.row", { class: "spread mid" },
       h("span.small.muted", `Checks GitHub every ${Math.round(S.st.config.pollSeconds / 60) || 1} min. `,
-        h("span.kbd", "j"), " ", h("span.kbd", "k"), " move between rows, ", h("span.kbd", "Enter"), " opens one."),
+        h("span.kbd", "j"), " ", h("span.kbd", "k"), " move between rows, ", h("span.kbd", "Enter"), " opens one, ", h("span.kbd", "s"), " snoozes it."),
       h("button.btn.quiet.small", { onclick: async () => { try { await post("/api/sync"); } catch (e) { toast(e.message); } refresh(true); } }, "Check now"))));
 }
 
@@ -323,6 +347,10 @@ addEventListener("keydown", (e) => {
   if (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.tagName === "SELECT") return;
   if (S.route.name === "review") reviewKeys(S, e);
   else if (S.route.name === "queue" && (e.key === "j" || e.key === "k")) moveRow(e.key === "j" ? 1 : -1);
+  else if (S.route.name === "queue" && e.key === "s" && t.matches && t.matches("tr.go[data-key]")) {
+    const it = todo().find((x) => x.key === t.dataset.key);
+    if (it) { opened = { key: it.key, kind: "snooze" }; render(); }
+  }
 });
 
 // moveRow moves focus through the inbox's rows; Enter on a row opens it.
