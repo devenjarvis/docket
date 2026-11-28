@@ -9,9 +9,9 @@ Review is redlining. Before screens, a change to a design was reviewed on a prin
 | `internal/web/static/docket.css` | The implementation: tokens, components and utilities. Components reference tokens only. |
 | `docs/tokens.json` | The record of every token (colours in both themes, type, spacing, lines) with a usage note each. The Design System artifact is built from it. |
 | `internal/web/tokens_test.go` | Fails when `docket.css` and `tokens.json` disagree, or when a colour is added to the stylesheet without being recorded. |
-| `internal/web/static/styleguide.html` | The living style guide: every token and component, rendered by `docket.css` itself, in both themes. Open `/static/styleguide.html` while `make demo` runs. |
+| `internal/web/static/styleguide.html` | The living style guide: every token and component, rendered by `docket.css` itself, in both themes. Open `/static/styleguide.html` while `mise run demo` runs. |
 
-To add or change a colour: change it in both theme blocks of `docket.css` and in `tokens.json`, then `make test`.
+To add or change a colour: change it in both theme blocks of `docket.css` and in `tokens.json`, then `mise run test`.
 
 ## Three marks
 
